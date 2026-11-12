@@ -116,6 +116,18 @@ details summary{cursor:pointer;color:var(--muted);padding:8px 4px;font-weight:60
 .kitbtn.vergessen{color:var(--bad);background:rgba(210,40,40,.15)}
 td.hot{color:var(--bad);font-weight:800}
 .item.mrow{gap:5px;padding-right:8px}
+.mrow .mbtn{min-width:36px}
+.mbtn.strong.plus{background:rgba(26,127,55,.45)}
+.mbtn.strong.minus{background:rgba(210,40,40,.42)}
+.ubrow{display:flex;gap:6px;flex-basis:100%}.ubrow .mbtn{flex:1}
+.away{opacity:.55;background:var(--chip)}
+.tag{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:6px;padding:0 6px;font-size:12px;color:var(--muted);font-weight:600}
+.seg button.on.befreit{background:var(--chip);color:var(--fg)}
+.namegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.namegrid button{border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:10px;min-height:46px;padding:6px 8px;font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.namegrid button.ok{background:rgba(26,127,55,.3);border-color:var(--ok);font-weight:700}
+.namegrid button.ok::before{content:"✓ "}
+.bar{height:8px;border-radius:4px;background:var(--chip);overflow:hidden;margin-top:6px}.bar>i{display:block;height:100%;background:var(--ok)}
 .fab{position:fixed;right:14px;bottom:calc(76px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;border:0;background:var(--pri);color:var(--pri-fg);font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.35);z-index:6;cursor:pointer}
 </style>
 </head>
@@ -234,7 +246,7 @@ function normalize(d) {
   d = d || {}; d.version = 1;
   d.settings = Object.assign({ autoLockMin: 10, lastBackup: null, autoBackup: 'daily' }, d.settings || {});
   for (const k of ['classes', 'grades', 'contribs', 'remarks', 'attendance']) if (!Array.isArray(d[k])) d[k] = [];
-  d.classes.forEach(c => { c.students ||= []; c.todos ||= []; c.type ||= /sport/i.test(c.subject || '') ? 'sport' : 'standard'; if (c.wBig == null) c.wBig = 2; if (c.wSmall == null) c.wSmall = 1; });
+  d.classes.forEach(c => { c.students ||= []; c.todos ||= []; c.checklists ||= []; c.type ||= /sport/i.test(c.subject || '') ? 'sport' : 'standard'; if (c.wBig == null) c.wBig = 2; if (c.wSmall == null) c.wSmall = 1; });
   return d;
 }
 async function requestPersist() { try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {} }
@@ -263,10 +275,24 @@ function stats(c, sid) {
   const total = big != null && small != null ? (c.wBig * big + c.wSmall * small) / (c.wBig + c.wSmall) : (big ?? small);
   const cs = db.contribs.filter(x => x.studentId === sid);
   const at = db.attendance.filter(x => x.studentId === sid);
-  return { big, small, total, n: gs.length, plus: cs.filter(x => x.val === '+').length, minus: cs.filter(x => x.val === '-').length, ha: cs.filter(x => x.val === 'HA').length, mat: cs.filter(x => x.val === 'MAT').length,
-    aktiv: at.filter(a => a.status === 'aktiv').length, passiv: at.filter(a => a.status === 'passiv').length, fehlt: at.filter(a => a.status === 'fehlt').length, vergessen: at.filter(a => a.kit === 'vergessen').length };
+  const n = v => cs.filter(x => x.val === v).length, a = k => at.filter(x => x.status === k).length;
+  return { big, small, total, n: gs.length, plus2: n('++'), plus: n('+'), minus: n('-'), minus2: n('--'), ha: n('HA'), mat: n('MAT'),
+    aktiv: a('aktiv'), passiv: a('passiv'), fehlt: a('fehlt'), befreit: a('befreit'), vergessen: at.filter(x => x.kit === 'vergessen').length };
 }
-const attChips = st => [st.passiv ? `<span class="hw">passiv ${st.passiv}</span>` : '', st.fehlt ? `<span class="mi">fehlt ${st.fehlt}</span>` : '', st.vergessen ? `<span class="mi">👕✗ ${st.vergessen}</span>` : ''].filter(Boolean).join(' &nbsp;');
+const attChips = st => [st.passiv ? `<span class="hw">passiv ${st.passiv}</span>` : '', st.fehlt ? `<span class="mi">fehlt ${st.fehlt}</span>` : '', st.vergessen ? `<span class="mi">👕✗ ${st.vergessen}</span>` : '', st.befreit ? `<span class="sub">befreit ${st.befreit}</span>` : ''].filter(Boolean).join(' &nbsp;');
+/* Beiträge: ++ sehr gut, + gut, − schwach, −− sehr schwach/Störung, HA = Hausaufgabe fehlt */
+const UB_VALS = ['++', '+', '-', '--', 'HA'];
+const UB_LABEL = { '++': '++', '+': '+', '-': '−', '--': '−−', HA: 'HA', MAT: 'Mat' };
+const UB_CLASS = { '++': 'plus strong', '+': 'plus', '-': 'minus', '--': 'minus strong', HA: 'ha', MAT: 'mat' };
+const UB_ARIA = { '++': 'Sehr guter Beitrag', '+': 'Guter Beitrag', '-': 'Schwacher Beitrag', '--': 'Sehr schwacher Beitrag', HA: 'Hausaufgabe fehlt', MAT: 'Material fehlt' };
+const ubButtons = (vals, call, style = '') => vals.map(v => `<button type="button" class="mbtn ${UB_CLASS[v]}" ${style} onclick="${call(v)}" aria-label="${UB_ARIA[v]}">${UB_LABEL[v]}</button>`).join('');
+/* Längere Abwesenheit (z. B. Ausland) und Sportbefreiung: gelten von „from“ bis einschließlich „until“ */
+const inRange = (x, d) => !!x && (!x.from || x.from <= d) && (!x.until || x.until >= d);
+const isAway = (s, d) => inRange(s.away, d || today());
+const isExempt = (s, d) => inRange(s.exempt, d || today());
+const activeCount = c => c.students.filter(s => !isAway(s)).length;
+const awayBadge = (s, d) => isAway(s, d) ? ` <span class="tag">${h(s.away.label || 'abwesend')}${s.away.until ? ' bis ' + fmtShort(s.away.until) : ''}</span>` : '';
+const exemptBadge = (s, d) => isExempt(s, d) ? ` <span class="tag">🩹 befreit${s.exempt.until ? ' bis ' + fmtShort(s.exempt.until) : ''}</span>` : '';
 function groupsOf(c) {
   const map = new Map();
   for (const g of db.grades.filter(g => g.classId === c.id)) {
@@ -278,8 +304,8 @@ function groupsOf(c) {
 }
 const contribChips = list => {
   const n = v => list.filter(x => x.val === v).length;
-  const p = n('+'), m = n('-'), ha = n('HA'), mat = n('MAT');
-  return [p ? `<span class="pl">+${p}</span>` : '', m ? `<span class="mi">−${m}</span>` : '', ha ? `<span class="hw">HA ${ha}</span>` : '', mat ? `<span class="mat-c">Mat ${mat}</span>` : ''].filter(Boolean).join(' &nbsp;');
+  return [['++', 'pl', '++'], ['+', 'pl', '+'], ['-', 'mi', '−'], ['--', 'mi', '−−'], ['HA', 'hw', 'HA '], ['MAT', 'mat-c', 'Mat ']]
+    .map(([v, cls, l]) => n(v) ? `<span class="${cls}">${l}${n(v)}</span>` : '').filter(Boolean).join(' &nbsp;');
 };
 
 /* ================= Modal ================= */
@@ -367,7 +393,7 @@ window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); }
 function renderHome() {
   const active = db.classes.filter(c => !c.archived), arch = db.classes.filter(c => c.archived);
   const card = c => { const open = c.todos.filter(t => !t.done).length;
-    return `<div class="item tap" onclick="location.hash='#/c/${c.id}'"><div class="avatar">${h(c.name.slice(0, 4))}</div><span aria-hidden="true">${c.type === 'sport' ? '🏃' : '📖'}</span><div class="grow"><div class="ell"><b>${h(c.name)}</b>${c.subject ? ` <span class="sub">· ${h(c.subject)}</span>` : ''}</div><div class="sub">${c.students.length} Schüler · ${open ? `<b>${open} offene To-dos</b>` : 'keine offenen To-dos'}</div></div><span class="chev">›</span></div>`; };
+    return `<div class="item tap" onclick="location.hash='#/c/${c.id}'"><div class="avatar">${h(c.name.slice(0, 4))}</div><span aria-hidden="true">${c.type === 'sport' ? '🏃' : '📖'}</span><div class="grow"><div class="ell"><b>${h(c.name)}</b>${c.subject ? ` <span class="sub">· ${h(c.subject)}</span>` : ''}</div><div class="sub">${activeCount(c)} Schüler · ${open ? `<b>${open} offene To-dos</b>` : 'keine offenen To-dos'}</div></div><span class="chev">›</span></div>`; };
   const lb = db.settings.lastBackup;
   const days = lb ? Math.floor((Date.now() - new Date(lb).getTime()) / 864e5) : null;
   const hint = db.classes.length && (days == null || days > 14) ? `<div class="card warn" onclick="location.hash='#/einstellungen'" style="cursor:pointer">⚠︎ ${lb ? `Letzte Sicherung vor ${days} Tagen.` : 'Noch keine Sicherung erstellt.'} Tippe hier, um eine Sicherungsdatei zu exportieren.</div>` : '';
@@ -380,7 +406,7 @@ A.editClass = id => {
   const c = id ? getClass(id) : { name: '', subject: 'Englisch', type: 'standard', year: schoolYear(), wBig: 2, wSmall: 1 };
   openModal(id ? 'Klasse bearbeiten' : 'Neue Klasse', `<div class="grid2">
     <label class="full">Art der Klasse<select name="type" onchange="A.typeChanged(this)">${Object.entries(TYPES).map(([k, l]) => `<option value="${k}" ${c.type === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <span class="hint" style="display:block;margin:4px 0 0">Englisch: Mitarbeit +/−, Strichliste HA &amp; Material. Sport: zu Stundenbeginn aktiv/passiv/fehlt und Sportzeug.</span></label>
+      <span class="hint" style="display:block;margin:4px 0 0">Englisch: Beiträge ++ / + / − / −−, Strichliste für fehlende Hausaufgaben. Sport: zu Stundenbeginn aktiv/passiv/fehlt und Sportzeug.</span></label>
     <label>Klasse<input name="name" value="${h(c.name)}" placeholder="z. B. 7b" autofocus></label>
     <label>Fach<input name="subject" value="${h(c.subject)}"></label>
     <label class="full">Schuljahr<input name="year" value="${h(c.year)}"></label>
@@ -422,10 +448,13 @@ function tabStudents(c) {
   const sport = c.type === 'sport';
   const rows = sts.map(s => {
     const chips = sport ? attChips(stats(c, s.id)) : contribChips(db.contribs.filter(x => x.studentId === s.id));
-    return `<div class="item mrow"><div class="grow tap" onclick="location.hash='#/s/${c.id}/${s.id}'"><div class="ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><div class="sub">${chips || '–'}</div></div>
-      ${sport ? '<span class="chev">›</span>' : `<button class="mbtn plus" onclick="A.contribToday('${c.id}','${s.id}','+')" aria-label="Positiver Beitrag heute">+</button><button class="mbtn minus" onclick="A.contribToday('${c.id}','${s.id}','-')" aria-label="Negativer Beitrag heute">−</button><button class="mbtn undo" onclick="A.ub('${c.id}','${s.id}')" aria-label="Beiträge bearbeiten">✎</button>`}</div>`; }).join('');
-  return `${sts.length ? `<div class="list">${rows}</div>
-    <p class="hint">${sport ? '' : '+ und − tragen einen Beitrag für heute ein. ✎ zeigt alle Einträge zum Ändern und Löschen. '}Noten siehst du nur im Tab „Noten“.</p>` :`<div class="card empty">Noch keine Schüler. Füge sie einzeln hinzu oder importiere eine Klassenliste (PDF oder Text).</div>`}
+    const away = isAway(s);
+    return `<div class="item mrow ${away ? 'away' : ''}"><div class="grow tap" onclick="location.hash='#/s/${c.id}/${s.id}'"><div class="ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><div class="sub">${awayBadge(s) + (sport ? exemptBadge(s) : '')} ${chips || (away || isExempt(s) ? '' : '–')}</div></div>
+      ${sport || away ? '<span class="chev">›</span>' : ubButtons(['++', '+', '-', '--'], v => `A.contribToday('${c.id}','${s.id}','${v}')`) + `<button class="mbtn undo" onclick="A.ub('${c.id}','${s.id}')" aria-label="Beiträge bearbeiten">✎</button>`}</div>`; }).join('');
+  const nAway = sts.length - activeCount(c);
+  return `${sts.length ? `<div class="card"><b>${activeCount(c)} Schüler</b>${nAway ? ` <span class="sub">· ${nAway} länger abwesend (nicht mitgezählt)</span>` : ''}</div>
+    <div class="list">${rows}</div>
+    <p class="hint">${sport ? '' : '++ / + / − / −− tragen einen Beitrag für heute ein. ✎ zeigt alle Einträge zum Ändern und Löschen. '}Noten siehst du nur im Tab „Noten“. Längere Abwesenheit${sport ? ' und Sportbefreiung' : ''} stellst du beim Schüler über ✎ oben rechts ein.</p>` :`<div class="card empty">Noch keine Schüler. Füge sie einzeln hinzu oder importiere eine Klassenliste (PDF oder Text).</div>`}
     <div class="btns"><button class="btn pri" onclick="A.addStudent('${c.id}')">+ Schüler</button><button class="btn" onclick="A.importStudents('${c.id}')">📄 Liste importieren</button></div>`;
 }
 A.addStudent = cid => {
@@ -443,8 +472,21 @@ A.addStudent = cid => {
 };
 A.editStudent = (cid, sid) => {
   const c = getClass(cid), s = c.students.find(x => x.id === sid);
-  openModal('Schüler bearbeiten', `<label>Nachname<input name="last" value="${h(s.last)}"></label><label>Vorname<input name="first" value="${h(s.first)}"></label>`, {
-    onSave: f => { if (!f.last.value.trim()) return false; s.last = f.last.value.trim(); s.first = f.first.value.trim(); persist(); },
+  const aw = s.away || {}, ex = s.exempt || {};
+  openModal('Schüler bearbeiten', `<div class="grid2"><label>Nachname<input name="last" value="${h(s.last)}"></label><label>Vorname<input name="first" value="${h(s.first)}"></label></div>
+    <div class="sec" style="margin-left:0">Längere Abwesenheit</div>
+    <label class="row"><input type="checkbox" name="away" ${s.away ? 'checked' : ''}> <span>Länger abwesend, z. B. im Ausland. Zählt nicht zur Klassenstärke, bleibt aber in der Liste.</span></label>
+    <div class="grid2"><label>Anzeige<input name="awayLabel" value="${h(aw.label || 'im Ausland')}"></label><label>bis einschließlich<input type="date" name="awayUntil" value="${aw.until || ''}"></label></div>
+    <p class="hint">Nach dem Datum zählt der Schüler automatisch wieder mit. Ohne Datum gilt die Abwesenheit, bis du den Haken entfernst.</p>
+    ${c.type === 'sport' ? `<div class="sec" style="margin-left:0">Sportbefreiung</div>
+    <label class="row"><input type="checkbox" name="exempt" ${s.exempt ? 'checked' : ''}> <span>Sportbefreiung, z. B. wegen Verletzung. Wird in der Stunde automatisch als „befreit“ eingetragen.</span></label>
+    <div class="grid2"><label>Grund<input name="exemptNote" value="${h(ex.note || '')}" placeholder="z. B. Bänderriss, Attest"></label><label>bis einschließlich<input type="date" name="exemptUntil" value="${ex.until || ''}"></label></div>` : ''}`, {
+    onSave: f => {
+      if (!f.last.value.trim()) return false; s.last = f.last.value.trim(); s.first = f.first.value.trim();
+      if (f.away.checked) s.away = { from: aw.from || today(), until: f.awayUntil.value || null, label: f.awayLabel.value.trim() || 'abwesend' }; else delete s.away;
+      if (f.exempt) { if (f.exempt.checked) s.exempt = { from: ex.from || today(), until: f.exemptUntil.value || null, note: f.exemptNote.value.trim() }; else delete s.exempt; }
+      persist();
+    },
     onDelete: () => {
       if (!confirm(`${s.first} ${s.last} mit allen Noten, Beiträgen und Bemerkungen löschen?`)) return false;
       c.students = c.students.filter(x => x.id !== sid);
@@ -555,12 +597,12 @@ function strichliste(c) {
   const sts = sortStudents(c.students);
   const sport = c.type === 'sport';
   const cols = sport
-    ? [['passiv', 'passiv', a => a.status === 'passiv'], ['fehlt', 'fehlt', a => a.status === 'fehlt'], ['verg', 'Sportzeug vergessen', a => a.kit === 'vergessen']]
-    : [['HA', 'HA fehlt', x => x.val === 'HA'], ['MAT', 'Material fehlt', x => x.val === 'MAT'], ['+', '+', x => x.val === '+'], ['-', '−', x => x.val === '-']];
+    ? [['passiv', 'passiv', a => a.status === 'passiv'], ['fehlt', 'fehlt', a => a.status === 'fehlt'], ['verg', 'Sportzeug vergessen', a => a.kit === 'vergessen'], ['befreit', 'befreit', a => a.status === 'befreit']]
+    : [['HA', 'HA fehlt', x => x.val === 'HA'], ['++', '++', x => x.val === '++'], ['+', '+', x => x.val === '+'], ['-', '−', x => x.val === '-'], ['--', '−−', x => x.val === '--']];
   const src = (sport ? db.attendance : db.contribs).filter(x => x.classId === c.id && x.date >= since);
-  const hotCols = sport ? ['passiv', 'fehlt', 'verg'] : ['HA', 'MAT'];
+  const hotCols = sport ? ['passiv', 'fehlt', 'verg'] : ['HA'];
   const rows = sts.map(s => { const mine = src.filter(x => x.studentId === s.id);
-    return `<tr class="tap" onclick="location.hash='#/s/${c.id}/${s.id}'"><td>${h(s.last)}, ${h(s.first.split(' ')[0])}</td>${cols.map(([k, , fn]) => { const n = mine.filter(fn).length; return `<td class="${hotCols.includes(k) && n >= 3 ? 'hot' : ''}">${n ? (n <= 6 && hotCols.includes(k) ? '|'.repeat(n) : n) : '·'}</td>`; }).join('')}</tr>`; }).join('');
+    return `<tr class="tap ${isAway(s) ? 'away' : ''}" onclick="location.hash='#/s/${c.id}/${s.id}'"><td>${h(s.last)}, ${h(s.first.split(' ')[0])}</td>${cols.map(([k, , fn]) => { const n = mine.filter(fn).length; return `<td class="${hotCols.includes(k) && n >= 3 ? 'hot' : ''}">${n ? (n <= 6 && hotCols.includes(k) ? '|'.repeat(n) : n) : '·'}</td>`; }).join('')}</tr>`; }).join('');
   const lessons = sport ? new Set(src.map(a => a.date)).size : null;
   return `<div class="card"><label style="margin:0">Zählen ab<input type="date" value="${since}" onchange="A.setSince(this.value)"></label>
     <p class="hint" style="margin-bottom:0">${sport ? `${lessons} erfasste Sportstunden seit ${fmtDate(since)}. ` : ''}Ab 3 Strichen rot markiert. Tippe auf einen Namen für Details.</p></div>
@@ -572,14 +614,15 @@ function sportDay(c) {
   const recs = new Map(db.attendance.filter(a => a.classId === c.id && a.date === d).map(a => [a.studentId, a]));
   const cnt = k => [...recs.values()].filter(a => a.status === k).length;
   const verg = [...recs.values()].filter(a => a.kit === 'vergessen').length;
-  const offen = sts.filter(s => !recs.get(s.id) || !recs.get(s.id).status).length;
-  const rows = sts.map(s => { const r = recs.get(s.id);
-    return `<div class="item wrapitem"><div class="nm tap" onclick="A.attNote('${c.id}','${s.id}')"><b>${h(s.last)}</b>, ${h(s.first)}${r && r.note ? ` <span class="sub">· ${h(r.note)}</span>` : ' <span class="sub">✎</span>'}</div>
-      <div class="seg">${['aktiv', 'passiv', 'fehlt'].map(k => `<button class="${r && r.status === k ? 'on ' + k : ''}" onclick="A.att('${c.id}','${s.id}','status','${k}')">${k}</button>`).join('')}</div>
+  const offen = sts.filter(s => !isAway(s, d) && (!recs.get(s.id) || !recs.get(s.id).status)).length;
+  const rows = sts.map(s => { const r = recs.get(s.id), ex = isExempt(s, d);
+    if (isAway(s, d)) return `<div class="item away"><div class="grow"><b>${h(s.last)}</b>, ${h(s.first)}${awayBadge(s, d)}</div></div>`;
+    return `<div class="item wrapitem"><div class="nm tap" onclick="A.attNote('${c.id}','${s.id}')"><b>${h(s.last)}</b>, ${h(s.first)}${exemptBadge(s, d)}${r && r.note ? ` <span class="sub">· ${h(r.note)}</span>` : ' <span class="sub">✎</span>'}</div>
+      <div class="seg">${['aktiv', 'passiv', 'fehlt'].concat(ex || (r && r.status === 'befreit') ? ['befreit'] : []).map(k => `<button class="${r && r.status === k ? 'on ' + k : ''}" onclick="A.att('${c.id}','${s.id}','status','${k}')">${k}</button>`).join('')}</div>
       <button class="kitbtn ${r && r.kit || ''}" onclick="A.att('${c.id}','${s.id}','kit')">${r && r.kit === 'vergessen' ? '👕 vergessen' : r && r.kit === 'dabei' ? '👕 dabei' : '👕 ?'}</button></div>`; }).join('');
   return `<div class="card"><label style="margin:0">Datum<input type="date" value="${d}" onchange="A.setMDate(this.value)"></label>
     <button class="btn pri block mt" onclick="A.attAll('${c.id}')">Alle übrigen: aktiv + Sportzeug dabei</button>
-    <p class="hint" style="margin-bottom:0"><span class="pl">aktiv ${cnt('aktiv')}</span> · <span class="hw">passiv ${cnt('passiv')}</span> · <span class="mi">fehlt ${cnt('fehlt')}</span> · 👕 vergessen ${verg}${offen ? ` · <b>${offen} noch offen</b>` : ''}<br>Tipp: Erst „Alle übrigen“ tippen, dann nur die Ausnahmen ändern. Name antippen für eine Notiz (z. B. Attest).</p></div>
+    <p class="hint" style="margin-bottom:0"><span class="pl">aktiv ${cnt('aktiv')}</span> · <span class="hw">passiv ${cnt('passiv')}</span> · <span class="mi">fehlt ${cnt('fehlt')}</span>${cnt('befreit') ? ` · befreit ${cnt('befreit')}` : ''} · 👕 vergessen ${verg}${offen ? ` · <b>${offen} noch offen</b>` : ''}<br>Tipp: Erst „Alle übrigen“ tippen, dann nur die Ausnahmen ändern. Schüler mit Sportbefreiung werden dabei als „befreit“ eingetragen. „Sportzeug vergessen“ setzt automatisch auf passiv. Name antippen für eine Notiz.</p></div>
     <div class="list">${rows}</div>`;
 }
 function attRec(cid, sid, d) {
@@ -590,14 +633,24 @@ function attRec(cid, sid, d) {
 function attCleanup() { db.attendance = db.attendance.filter(a => a.status || a.kit || a.note); }
 A.att = (cid, sid, field, val) => {
   const r = attRec(cid, sid, ui.mDate || today());
-  if (field === 'status') r.status = r.status === val ? null : val;
-  else r.kit = r.kit === 'vergessen' ? 'dabei' : 'vergessen';
+  if (field === 'status') { r.status = r.status === val ? null : val; delete r.autoPassiv; }
+  else if (r.kit === 'vergessen') { r.kit = 'dabei'; if (r.autoPassiv) { r.status = 'aktiv'; delete r.autoPassiv; } }
+  else {
+    r.kit = 'vergessen';
+    // Sportzeug vergessen heißt: kann nicht mitmachen, also automatisch passiv
+    if (r.status !== 'passiv' && r.status !== 'fehlt' && r.status !== 'befreit') { r.status = 'passiv'; r.autoPassiv = true; }
+  }
   attCleanup(); persist(); render();
 };
 A.attAll = cid => {
   const d = ui.mDate || today();
-  for (const s of getClass(cid).students) { const r = attRec(cid, s.id, d); if (!r.status) r.status = 'aktiv'; if (!r.kit && r.status !== 'fehlt') r.kit = 'dabei'; }
-  persist(); render(); toast('Alle übrigen als aktiv mit Sportzeug eingetragen.');
+  for (const s of getClass(cid).students) {
+    if (isAway(s, d)) continue;
+    const r = attRec(cid, s.id, d);
+    if (!r.status) { r.status = isExempt(s, d) ? 'befreit' : 'aktiv'; if (r.status === 'befreit' && !r.note && s.exempt.note) r.note = s.exempt.note; }
+    if (!r.kit && r.status === 'aktiv') r.kit = 'dabei';
+  }
+  attCleanup(); persist(); render(); toast('Alle übrigen eingetragen.');
 };
 A.attNote = (cid, sid) => {
   const d = ui.mDate || today(), s = getClass(cid).students.find(x => x.id === sid);
@@ -611,29 +664,19 @@ function contribDay(c) {
   const sts = sortStudents(c.students);
   const rows = sts.map(s => {
     const list = db.contribs.filter(x => x.studentId === s.id && x.date === d);
-    return `<div class="item mrow"><div class="grow"><div class="ell"><b>${h(s.last)}</b></div><div class="sub ell">${h(s.first)} ${contribChips(list)}</div></div>
-      <button class="mbtn plus" onclick="A.contrib('${c.id}','${s.id}','+')" aria-label="Positiver Beitrag">+</button>
-      <button class="mbtn minus" onclick="A.contrib('${c.id}','${s.id}','-')" aria-label="Negativer Beitrag">−</button>
-      <button class="mbtn ha" onclick="A.contrib('${c.id}','${s.id}','HA')" aria-label="Hausaufgabe fehlt">HA</button>
-      <button class="mbtn mat" onclick="A.contrib('${c.id}','${s.id}','MAT')" aria-label="Material fehlt">Mat</button>
-      <button class="mbtn undo" onclick="A.ub('${c.id}','${s.id}')" aria-label="Beiträge bearbeiten">✎</button></div>`;
+    if (isAway(s, d)) return `<div class="item away"><div class="grow"><b>${h(s.last)}</b>, ${h(s.first)}${awayBadge(s, d)}</div></div>`;
+    return `<div class="item wrapitem"><div class="nm"><b>${h(s.last)}</b>, ${h(s.first)} &nbsp;<span class="sub">${contribChips(list)}</span></div>
+      <div class="ubrow">${ubButtons(UB_VALS, v => `A.contrib('${c.id}','${s.id}','${v}')`)}<button class="mbtn undo" onclick="A.ub('${c.id}','${s.id}')" aria-label="Beiträge bearbeiten">✎</button></div></div>`;
   }).join('');
   return `<div class="card"><label style="margin:0">Datum<input type="date" value="${d}" onchange="A.setMDate(this.value)"></label>
-    <p class="hint" style="margin-bottom:0">+ guter Beitrag · − kein/schwacher Beitrag · HA Hausaufgabe fehlt · Mat Material fehlt · ✎ Einträge ändern oder löschen</p></div>
+    <p class="hint" style="margin-bottom:0">++ sehr gut · + gut · − schwach · −− sehr schwach · HA Hausaufgabe fehlt · ✎ Einträge ändern oder löschen</p></div>
     ${sts.length ? `<div class="list">${rows}</div>` : '<div class="card empty">Noch keine Schüler in dieser Klasse.</div>'}`;
 }
 A.setMDate = v => { ui.mDate = v || null; render(); };
 A.contrib = (cid, sid, val) => { db.contribs.push({ id: uid(), classId: cid, studentId: sid, date: ui.mDate || today(), val, ts: Date.now() }); persist(); render(); if (navigator.vibrate) navigator.vibrate(15); };
-A.undoContrib = sid => {
-  const d = ui.mDate || today();
-  const list = db.contribs.filter(x => x.studentId === sid && x.date === d).sort((a, b) => (a.ts || 0) - (b.ts || 0));
-  const last = list[list.length - 1]; if (!last) return;
-  db.contribs = db.contribs.filter(x => x !== last); persist(); render();
-};
 
 /* ---------- Beiträge-Fenster (aus jeder Ansicht erreichbar) ---------- */
-const UB_LABEL = { '+': '+', '-': '−', HA: 'HA', MAT: 'Mat' };
-const UB_CLASS = { '+': 'plus', '-': 'minus', HA: 'ha', MAT: 'mat' };
+const UB_LONG = { '++': 'sehr gut', '+': 'gut', '-': 'schwach', '--': 'sehr schwach', HA: 'fehlt' };
 function ubBody() {
   const { cid, sid, date } = ubOpen;
   const dateInp = `<label>Datum<input type="date" value="${date}" onchange="A.ubDate(this.value)"></label>`;
@@ -641,12 +684,13 @@ function ubBody() {
     const list = db.contribs.filter(x => x.studentId === sid).sort((a, b) => (a.ts || 0) - (b.ts || 0));
     const byDate = {}; list.forEach(x => (byDate[x.date] ||= []).push(x));
     const hist = Object.keys(byDate).sort().reverse().map(d => `<div class="gi-row"><span>${fmtDate(d)}</span><div style="text-align:right">${byDate[d].map(x => `<button type="button" class="mbtn ${UB_CLASS[x.val]}" style="padding:0 10px;font-size:13px;height:36px;margin:2px 0 2px 4px" onclick="A.ubDel('${x.id}')" aria-label="Eintrag löschen">${UB_LABEL[x.val]} ✕</button>`).join('')}</div></div>`).join('');
-    return dateInp + `<div class="row" style="gap:6px">${[['+', '+ Beitrag'], ['-', '− Beitrag'], ['HA', 'HA fehlt'], ['MAT', 'Material fehlt']].map(([v, l]) => `<button type="button" class="mbtn ${UB_CLASS[v]}" style="flex:1;font-size:13px;height:50px" onclick="A.ubAdd('${v}')">${l}</button>`).join('')}</div>
+    return dateInp + `<div class="row" style="gap:6px">${UB_VALS.map(v => `<button type="button" class="mbtn ${UB_CLASS[v]}" style="flex:1;font-size:16px;height:56px;line-height:1.1" onclick="A.ubAdd('${v}')" aria-label="${UB_ARIA[v]}">${UB_LABEL[v]}<br><span style="font-size:10px;font-weight:600">${UB_LONG[v]}</span></button>`).join('')}</div>
       <div class="sec" style="margin-left:0">Bisherige Einträge</div>${hist ? hist + '<p class="hint mt">Eintrag antippen, um ihn zu löschen.</p>' : '<p class="hint">Noch keine Einträge.</p>'}`;
   }
   return dateInp + sortStudents(getClass(cid).students).map(s => {
     const l = db.contribs.filter(x => x.studentId === s.id && x.date === date);
-    return `<div class="gi-row" style="gap:5px"><div class="grow"><div class="ell"><b>${h(s.last)}</b></div><div class="sub ell">${h(s.first)} ${contribChips(l)}</div></div>${['+', '-', 'HA', 'MAT'].map(v => `<button type="button" class="mbtn ${UB_CLASS[v]}" onclick="A.ubAdd('${v}','${s.id}')">${UB_LABEL[v]}</button>`).join('')}<button type="button" class="mbtn undo" onclick="A.ub('${cid}','${s.id}')" aria-label="Einträge bearbeiten">✎</button></div>`;
+    if (isAway(s, date)) return `<div class="gi-row away"><div class="grow"><b>${h(s.last)}</b>, ${h(s.first)}${awayBadge(s, date)}</div></div>`;
+    return `<div class="gi-row" style="flex-wrap:wrap;row-gap:4px"><div class="nm"><b>${h(s.last)}</b>, ${h(s.first)} &nbsp;<span class="sub">${contribChips(l)}</span></div><div class="ubrow">${ubButtons(UB_VALS, v => `A.ubAdd('${v}','${s.id}')`)}<button type="button" class="mbtn undo" onclick="A.ub('${cid}','${s.id}')" aria-label="Einträge bearbeiten">✎</button></div></div>`;
   }).join('');
 }
 function refreshUb() { if (ubOpen) document.getElementById('mBody').innerHTML = ubBody(); }
@@ -766,11 +810,11 @@ A.exportCsv = cid => {
   const groups = groupsOf(c).filter(g => g.isGroup).reverse();
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const num = v => v == null ? '' : v.toFixed(2).replace('.', ',');
-  const head = ['Nachname', 'Vorname', ...groups.map(g => `${g.title} (${fmtShort(g.date)})`), 'Einzelnoten', 'Schnitt groß', 'Schnitt klein', 'Gesamt', ...(c.type === 'sport' ? ['aktiv', 'passiv', 'fehlt', 'Sportzeug vergessen'] : ['Mitarbeit +', 'Mitarbeit −', 'HA fehlt', 'Material fehlt'])];
+  const head = ['Nachname', 'Vorname', ...groups.map(g => `${g.title} (${fmtShort(g.date)})`), 'Einzelnoten', 'Schnitt groß', 'Schnitt klein', 'Gesamt', ...(c.type === 'sport' ? ['aktiv', 'passiv', 'fehlt', 'befreit', 'Sportzeug vergessen'] : ['Beiträge ++', 'Beiträge +', 'Beiträge −', 'Beiträge −−', 'HA fehlt']), 'Abwesend bis'];
   const rows = sortStudents(c.students).map(s => {
     const st = stats(c, s.id);
     const singles = db.grades.filter(g => g.studentId === s.id && !g.groupId).map(g => `${g.label} (${g.title})`).join(', ');
-    return [s.last, s.first, ...groups.map(g => { const x = g.items.find(i => i.studentId === s.id); return x ? x.label : ''; }), singles, num(st.big), num(st.small), num(st.total), ...(c.type === 'sport' ? [st.aktiv, st.passiv, st.fehlt, st.vergessen] : [st.plus, st.minus, st.ha, st.mat])];
+    return [s.last, s.first, ...groups.map(g => { const x = g.items.find(i => i.studentId === s.id); return x ? x.label : ''; }), singles, num(st.big), num(st.small), num(st.total), ...(c.type === 'sport' ? [st.aktiv, st.passiv, st.fehlt, st.befreit, st.vergessen] : [st.plus2, st.plus, st.minus, st.minus2, st.ha]), isAway(s) ? (s.away.until ? fmtDate(s.away.until) : 'unbefristet') : ''];
   });
   download(`Noten_${c.name}_${today()}.csv`.replace(/[\\/:*?"<>| ]/g, '_'), '﻿' + [head, ...rows].map(r => r.map(q).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 };
@@ -785,8 +829,47 @@ function tabTodos(c) {
   return `<form class="card" onsubmit="A.addTodo(event,'${c.id}')"><input name="text" placeholder="Neues To-do, z. B. „Ex korrigieren“" autocomplete="off">
     <div class="row mt"><input type="date" name="due" class="grow" style="margin:0" aria-label="Fällig am"><button class="btn pri">Hinzufügen</button></div></form>
     ${open.length ? `<div class="list">${open.map(item).join('')}</div>` : '<div class="card empty">Keine offenen To-dos 🎉</div>'}
-    ${done.length ? `<details><summary>Erledigt (${done.length})</summary><div class="list">${done.map(item).join('')}</div><button class="btn danger block" onclick="A.clearDone('${c.id}')">Erledigte löschen</button></details>` : ''}`;
+    ${done.length ? `<details><summary>Erledigt (${done.length})</summary><div class="list">${done.map(item).join('')}</div><button class="btn danger block" onclick="A.clearDone('${c.id}')">Erledigte löschen</button></details>` : ''}
+    ${checklistCards(c)}`;
 }
+/* Abhak-Listen: Namensliste, bei der man Namen antippt (grün = erledigt) */
+function clCount(c, l) { const ids = c.students.filter(s => !isAway(s)).map(s => s.id); return { done: ids.filter(i => l.done.includes(i)).length, total: ids.length }; }
+function checklistCards(c) {
+  const lists = c.checklists || [];
+  return `<div class="sec">Abhak-Listen</div>
+    <form class="card row" onsubmit="A.addChecklist(event,'${c.id}')"><input name="title" class="grow" style="margin:0" placeholder="z. B. „1. Schulaufgabe zurück“" autocomplete="off"><button class="btn pri">Neue Liste</button></form>
+    ${lists.length ? `<div class="list">${lists.map(l => { const { done, total } = clCount(c, l);
+      return `<div class="item tap" onclick="A.openChecklist('${c.id}','${l.id}')"><div class="grow"><div><b>${h(l.title)}</b></div><div class="sub">${done} von ${total} abgehakt${total - done ? ` · <b>${total - done} ${total - done === 1 ? 'fehlt' : 'fehlen'} noch</b>` : ' · vollständig ✓'}</div><div class="bar"><i style="width:${total ? done / total * 100 : 0}%"></i></div></div><span class="chev">›</span></div>`; }).join('')}</div>`
+    : '<p class="hint">Namensliste zum Abhaken, z. B. für zurückgegebene Schulaufgaben, Exen oder Elternbriefe. Titel eingeben und „Neue Liste“ tippen.</p>'}`;
+}
+const getChecklist = (cid, lid) => { const c = getClass(cid); return [c, c.checklists.find(x => x.id === lid)]; };
+A.addChecklist = (e, cid) => {
+  e.preventDefault(); const c = getClass(cid);
+  if (!c.students.length) return toast('Bitte zuerst Schüler anlegen.');
+  const l = { id: uid(), title: e.target.elements.title.value.trim() || 'Abhak-Liste', created: Date.now(), done: [] };
+  (c.checklists ||= []).unshift(l); persist(); render(); A.openChecklist(cid, l.id);
+};
+function clInfo(c, l) {
+  const { done, total } = clCount(c, l), el = document.getElementById('clInfo');
+  if (el) el.innerHTML = `Namen antippen: grün = erledigt. <b>${done} von ${total}</b> abgehakt${total - done ? `, <b>${total - done} ${total - done === 1 ? 'fehlt' : 'fehlen'} noch</b>` : ', vollständig ✓'}.`;
+}
+A.openChecklist = (cid, lid) => {
+  const [c, l] = getChecklist(cid, lid);
+  openModal('Abhak-Liste', `<label>Titel<input name="title" value="${h(l.title)}" onchange="A.clTitle('${cid}','${lid}',this.value)"></label><p class="hint" id="clInfo"></p>
+    <div class="namegrid">${sortStudents(c.students).map(s => `<button type="button" class="${l.done.includes(s.id) ? 'ok' : ''} ${isAway(s) ? 'away' : ''}" onclick="A.clToggle('${cid}','${lid}','${s.id}',this)"><b>${h(s.last)}</b>, ${h(s.first)}${isAway(s) ? `<br><span class="sub">${h(s.away.label || 'abwesend')}</span>` : ''}</button>`).join('')}</div>
+    <div class="btns mt"><button type="button" class="btn sm" onclick="A.clAll('${cid}','${lid}',true)">Alle abhaken</button><button type="button" class="btn sm" onclick="A.clAll('${cid}','${lid}',false)">Alle zurücksetzen</button></div>`, {
+    cancelLabel: 'Fertig',
+    onDelete: () => { if (!confirm('Diese Abhak-Liste löschen?')) return false; c.checklists = c.checklists.filter(x => x.id !== lid); persist(); }
+  });
+  clInfo(c, l);
+};
+A.clToggle = (cid, lid, sid, btn) => {
+  const [c, l] = getChecklist(cid, lid), i = l.done.indexOf(sid);
+  if (i >= 0) l.done.splice(i, 1); else l.done.push(sid);
+  btn.classList.toggle('ok', i < 0); persist(); clInfo(c, l); render();
+};
+A.clAll = (cid, lid, on) => { const [c, l] = getChecklist(cid, lid); l.done = on ? c.students.map(s => s.id) : []; persist(); render(); A.openChecklist(cid, lid); };
+A.clTitle = (cid, lid, v) => { const [, l] = getChecklist(cid, lid); if (v.trim()) l.title = v.trim(); persist(); render(); };
 A.addTodo = (e, cid) => { e.preventDefault(); const f = e.target.elements; const text = f.text.value.trim(); if (!text) return; getClass(cid).todos.push({ id: uid(), text, due: f.due.value || null, done: false, created: Date.now() }); persist(); render(); setTimeout(() => { const i = app.querySelector('input[name=text]'); if (i) i.focus(); }, 30); };
 A.toggleTodo = (cid, tid) => { const t = getClass(cid).todos.find(x => x.id === tid); t.done = !t.done; t.doneAt = t.done ? Date.now() : null; persist(); setTimeout(render, 150); };
 A.editTodo = (cid, tid) => {
@@ -842,10 +925,11 @@ function renderStudent(c, sid, view) {
     return;
   }
   app.innerHTML = head + `<main>${sw}
+    ${isAway(s) || (c.type === 'sport' && isExempt(s)) ? `<div class="card row"><div class="grow">${awayBadge(s)}${c.type === 'sport' ? exemptBadge(s) : ''}${c.type === 'sport' && isExempt(s) && s.exempt.note ? ` <span class="sub">${h(s.exempt.note)}</span>` : ''}</div><button class="btn sm" onclick="A.editStudent('${c.id}','${sid}')">Ändern</button></div>` : ''}
     ${c.type === 'sport'
-      ? `<div class="card"><div class="sub">Sportstunden</div><div><span class="pl">aktiv ${st.aktiv}</span> &nbsp;<span class="hw">passiv ${st.passiv}</span> &nbsp;<span class="mi">fehlt ${st.fehlt}</span> &nbsp;<span class="mi">👕 vergessen ${st.vergessen}</span></div></div>`
-      : `<div class="card"><div class="row" style="gap:5px"><div class="grow"><div class="sub">Beiträge gesamt</div><div><span class="pl">+${st.plus}</span> &nbsp;<span class="mi">−${st.minus}</span> &nbsp;<span class="hw">HA ${st.ha}</span> &nbsp;<span class="mat-c">Mat ${st.mat}</span></div><div class="sub">heute: ${contribChips(td) || '–'}</div></div></div>
-    <div class="row mt" style="gap:6px"><button class="mbtn plus" style="flex:1" onclick="A.contribToday('${c.id}','${sid}','+')">+</button><button class="mbtn minus" style="flex:1" onclick="A.contribToday('${c.id}','${sid}','-')">−</button><button class="mbtn ha" style="flex:1" onclick="A.contribToday('${c.id}','${sid}','HA')">HA</button><button class="mbtn mat" style="flex:1" onclick="A.contribToday('${c.id}','${sid}','MAT')">Mat</button><button class="mbtn undo" style="flex:1" onclick="A.ub('${c.id}','${sid}')" aria-label="Beiträge ändern">✎</button></div></div>`}
+      ? `<div class="card"><div class="sub">Sportstunden</div><div><span class="pl">aktiv ${st.aktiv}</span> &nbsp;<span class="hw">passiv ${st.passiv}</span> &nbsp;<span class="mi">fehlt ${st.fehlt}</span> &nbsp;<span class="mi">👕 vergessen ${st.vergessen}</span>${st.befreit ? ` &nbsp;<span class="sub">befreit ${st.befreit}</span>` : ''}</div></div>`
+      : `<div class="card"><div class="sub">Beiträge gesamt</div><div>${contribChips(cs) || '–'}</div><div class="sub">heute: ${contribChips(td) || '–'}</div>
+    <div class="ubrow mt">${ubButtons(UB_VALS, v => `A.contribToday('${c.id}','${sid}','${v}')`)}<button class="mbtn undo" onclick="A.ub('${c.id}','${sid}')" aria-label="Beiträge ändern">✎</button></div></div>`}
 
     <div class="sec">Bemerkungen</div>
     <form class="card" onsubmit="A.addRemark(event,'${c.id}','${sid}')"><div class="row"><select name="tag" style="margin:0">${TAGS.map(t => `<option>${t}</option>`).join('')}</select><input type="date" name="date" value="${today()}" style="margin:0"></div>
@@ -859,7 +943,7 @@ function renderStudent(c, sid, view) {
     ${nav}
   </main>`;
 }
-A.contribToday = (cid, sid, val) => { db.contribs.push({ id: uid(), classId: cid, studentId: sid, date: today(), val, ts: Date.now() }); persist(); render(); toast(val === 'HA' ? 'HA fehlt eingetragen.' : val === 'MAT' ? 'Material fehlt eingetragen.' : `Beitrag ${val === '+' ? '+' : '−'} eingetragen.`); };
+A.contribToday = (cid, sid, val) => { db.contribs.push({ id: uid(), classId: cid, studentId: sid, date: today(), val, ts: Date.now() }); persist(); render(); toast(val === 'HA' ? 'HA fehlt eingetragen.' : `Beitrag ${UB_LABEL[val]} eingetragen.`); };
 A.addRemark = (e, cid, sid) => {
   e.preventDefault(); const f = e.target.elements; const text = f.text.value.trim(); if (!text) return toast('Bitte Text eingeben.');
   db.remarks.push({ id: uid(), classId: cid, studentId: sid, date: f.date.value || today(), tag: f.tag.value, text, ts: Date.now() }); persist(); render(); toast('Bemerkung gespeichert.');
