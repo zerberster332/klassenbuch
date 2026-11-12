@@ -219,20 +219,28 @@ const Vault = {
     const base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']);
     return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   },
+  // Vor dem Verschlüsseln wird komprimiert (z: 1), damit Speicher und Cloud-Verlauf klein bleiben.
+  async gz(bytes, unpack) {
+    const s = new Blob([bytes]).stream().pipeThrough(unpack ? new DecompressionStream('gzip') : new CompressionStream('gzip'));
+    return new Uint8Array(await new Response(s).arrayBuffer());
+  },
   async encryptWith(key, salt, obj) {
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj)));
-    return { app: 'klassenbuch', v: 1, saved: new Date().toISOString(), salt: b64(salt), iv: b64(iv), ct: b64(ct) };
+    let pt = enc.encode(JSON.stringify(obj)), z = 0;
+    if (window.CompressionStream) { pt = await this.gz(pt); z = 1; }
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, pt);
+    return { app: 'klassenbuch', v: 1, z, saved: new Date().toISOString(), salt: b64(salt), iv: b64(iv), ct: b64(ct) };
+  },
+  async openWith(key, blob) {
+    let pt = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(blob.iv) }, key, unb64(blob.ct)));
+    if (blob.z) pt = await this.gz(pt, true);
+    return JSON.parse(dec.decode(pt));
   },
   async decryptBlob(blob, pw) {
     const salt = unb64(blob.salt), key = await this.derive(pw, salt);
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(blob.iv) }, key, unb64(blob.ct));
-    return { data: JSON.parse(dec.decode(pt)), key, salt };
+    return { data: await this.openWith(key, blob), key, salt };
   },
-  async decryptWithKey(blob) {
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(blob.iv) }, this.key, unb64(blob.ct));
-    return { data: JSON.parse(dec.decode(pt)), key: this.key, salt: this.salt };
-  },
+  async decryptWithKey(blob) { return { data: await this.openWith(this.key, blob), key: this.key, salt: this.salt }; },
   async create(pw) { this.salt = crypto.getRandomValues(new Uint8Array(16)); this.key = await this.derive(pw, this.salt); },
   async unlock(pw) { const r = await this.decryptBlob(JSON.parse(localStorage.getItem(VAULT)), pw); this.key = r.key; this.salt = r.salt; return r.data; },
   async save(data) { localStorage.setItem(VAULT, JSON.stringify(await this.encryptWith(this.key, this.salt, data))); }
@@ -245,6 +253,7 @@ function persist(noMark) {
   if (!noMark) db.settings.lastChange = Date.now();
   const snap = JSON.parse(JSON.stringify(db));
   saving = saving.then(() => Vault.save(snap)).catch(e => { console.error(e); alert('Speichern fehlgeschlagen: ' + e.message); });
+  if (!noMark) syncSchedule();
 }
 function normalize(d) {
   d = d || {}; d.version = 1;
@@ -370,9 +379,14 @@ A.unlock = async e => {
   e.preventDefault(); busy(true);
   try { db = normalize(await Vault.unlock(e.target.elements.pw.value)); lastAct = Date.now(); requestPersist(); render(); }
   catch (err) { return renderLock('Falsches Passwort.'); }
-  maybeAutoBackup().catch(err => console.error(err));
+  await autoSync();
+  if (db) maybeAutoBackup().catch(err => console.error(err));
 };
-A.lock = async () => { await saving; db = null; Vault.key = null; Vault.salt = null; A.closeModal(); renderLock(); };
+A.lock = async () => {
+  // Vor dem Sperren noch offene Änderungen in die Cloud bringen (höchstens 5 Sekunden warten).
+  if (db && db.settings.sync && syncDirty()) await Promise.race([autoSync(), new Promise(r => setTimeout(r, 5000))]);
+  clearTimeout(syncTimer); await saving; db = null; Vault.key = null; Vault.salt = null; A.closeModal(); renderLock();
+};
 let lastAct = Date.now();
 ['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => { lastAct = Date.now(); }, true));
 function checkIdle() { if (db && db.settings.autoLockMin > 0 && Date.now() - lastAct > db.settings.autoLockMin * 60000) A.lock(); }
@@ -1088,16 +1102,127 @@ function syncCard() {
     <form onsubmit="A.syncConnect(event)"><label>Repository (benutzername/name)<input name="repo" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="z. B. meinname/klassenbuch-daten"></label>
     <label>Zugangsschlüssel (Token, beginnt mit github_pat_)<input type="text" name="token" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></label>
     <button class="btn pri block mt">Verbinden</button></form></div>`;
-  const open = (db.settings.lastChange || 0) > (st.change || 0);
+  const dirLabel = { down: 'geladen', up: 'hochgeladen', merge: 'zusammengeführt' }[st.dir] || '';
   return `<div class="card"><h2>Cloud-Abgleich</h2>
     <div class="sub">Verbunden mit <b>${h(cfg.repo)}</b></div>
-    <div class="sub">Letzter Abgleich: <b>${st.at ? fmtStamp(st.at) + (st.dir === 'down' ? ' (geladen)' : ' (hochgeladen)') : 'noch nie'}</b></div>
-    ${open ? `<p class="warn">Auf diesem Gerät gibt es Änderungen, die noch nicht in der Cloud sind.</p>` : ''}
-    <button class="btn pri block mt" onclick="A.syncUpload()">⬆︎ In die Cloud hochladen</button>
-    <button class="btn block mt" onclick="A.syncDownload()">⬇︎ Aus der Cloud laden (ersetzt die Daten hier)</button>
+    <div class="sub">Letzter Abgleich: <b>${st.at ? fmtStamp(st.at) + (dirLabel ? ' (' + dirLabel + ')' : '') : 'noch nie'}</b></div>
+    ${syncErr ? `<p class="warn">Letzter Versuch fehlgeschlagen: ${h(syncErr)}</p>` : ''}
+    ${syncDirty() ? `<p class="hint">Es gibt Änderungen, die noch nicht in der Cloud sind. Sie werden gleich automatisch übertragen.</p>` : ''}
+    <button class="btn pri block mt" onclick="A.syncNow()">🔄 Jetzt abgleichen</button>
+    <button class="btn block mt" onclick="A.syncDownload()">⬇︎ Stand aus der Cloud erzwingen (ersetzt die Daten hier)</button>
     <button class="btn block mt" onclick="A.syncDisconnect()">Verbindung trennen</button>
-    <p class="hint">Übertragen wird nur die verschlüsselte Datei „${SYNC_FILE}“. Der Abgleich läuft in dieser Version nur, wenn du einen der Knöpfe drückst.</p></div>`;
+    <p class="hint">Die App gleicht automatisch ab: beim Entsperren, wenn du zur App zurückkehrst, kurz nach jeder Änderung und beim Sperren. Ohne Internet arbeitest du normal weiter, abgeglichen wird später. Haben zwei Geräte gleichzeitig geändert, werden beide Stände zusammengeführt. Übertragen wird nur die verschlüsselte Datei „${SYNC_FILE}“.</p></div>`;
 }
+const syncDirty = () => !!db && (db.settings.lastChange || 0) > (syncState().change || 0);
+let syncTimer = null, syncAgain = false, syncErr = '';
+function syncSchedule(ms = 20000) { if (!db || !db.settings.sync) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => autoSync(), ms); }
+const modalOpen = () => !document.getElementById('modal').classList.contains('hidden');
+async function settled() { let p; do { p = saving; await p; } while (p !== saving); }
+
+/* Zusammenführen zweier Stände. base = letzter gemeinsamer Stand (kann fehlen), preferLoc entscheidet echte Konflikte. */
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function mergeColl(b, loc, rem, preferLoc) {
+  const B = new Map(b.map(x => [x.id, x])), R = new Map(rem.map(x => [x.id, x])), L = new Set(loc.map(x => x.id)), out = [];
+  for (const l of loc) {
+    const r = R.get(l.id), bb = B.get(l.id);
+    if (r) out.push(merge3(bb, l, r, preferLoc));
+    else if (!bb || !sameJson(bb, l)) out.push(l); // neu hier, oder drüben gelöscht, aber hier geändert
+  }
+  for (const r of rem) if (!L.has(r.id)) { const bb = B.get(r.id); if (!bb || !sameJson(bb, r)) out.push(r); }
+  return out;
+}
+function merge3(base, loc, rem, preferLoc) {
+  if (sameJson(loc, rem)) return loc;
+  if (base !== undefined && sameJson(base, loc)) return rem;
+  if (base !== undefined && sameJson(base, rem)) return loc;
+  if (Array.isArray(loc) && Array.isArray(rem)) {
+    const b = Array.isArray(base) ? base : [], all = [loc, rem, b];
+    if (all.every(a => a.every(x => isObj(x) && x.id))) return mergeColl(b, loc, rem, preferLoc);
+    if (all.every(a => a.every(x => !x || typeof x !== 'object')))
+      return loc.filter(x => rem.includes(x) || !b.includes(x)).concat(rem.filter(x => !loc.includes(x) && !b.includes(x)));
+    return preferLoc ? loc : rem;
+  }
+  if (isObj(loc) && isObj(rem)) {
+    const b = isObj(base) ? base : {}, out = {};
+    for (const k of new Set([...Object.keys(loc), ...Object.keys(rem)])) {
+      const inL = k in loc, inR = k in rem, inB = k in b;
+      if (inL && inR) out[k] = merge3(inB ? b[k] : undefined, loc[k], rem[k], preferLoc);
+      else if (inL) { if (!inB || !sameJson(b[k], loc[k])) out[k] = loc[k]; }
+      else if (!inB || !sameJson(b[k], rem[k])) out[k] = rem[k];
+    }
+    return out;
+  }
+  return preferLoc ? loc : rem;
+}
+function mergeDb(base, loc, rem) {
+  rem = normalize(rem); if (base) base = normalize(base);
+  const preferLoc = (loc.settings.lastChange || 0) >= (rem.settings.lastChange || 0);
+  const m = normalize(JSON.parse(JSON.stringify(merge3(base || undefined, loc, rem, preferLoc))));
+  // Einträge zu gelöschten Klassen oder Schülern entfernen, doppelte Anwesenheit (gleicher Schüler, gleicher Tag) auflösen.
+  const cls = new Map(m.classes.map(c => [c.id, new Set(c.students.map(s => s.id))]));
+  for (const k of ['grades', 'contribs', 'remarks', 'attendance']) m[k] = m[k].filter(x => cls.has(x.classId) && (!x.studentId || cls.get(x.classId).has(x.studentId)));
+  const seen = new Map();
+  for (const a of m.attendance) { const k = a.classId + '|' + a.studentId + '|' + a.date; if (!seen.has(k) || !preferLoc) seen.set(k, a); }
+  m.attendance = [...seen.values()];
+  return m;
+}
+async function openAny(blob, pairs) {
+  for (const [key, salt] of pairs) if (key && salt && blob.salt === b64(salt)) { try { return await Vault.openWith(key, blob); } catch (e) {} }
+  return undefined;
+}
+// Ein Abgleich-Durchlauf. Ergebnis: none | pushed | pulled | merged | retry
+async function syncOnce() {
+  const cfg = db.settings.sync; await settled();
+  const st = syncState(), mark = db.settings.lastChange || 0, dirty = mark > (st.change || 0);
+  const moved = () => !db || (db.settings.lastChange || 0) !== mark; // währenddessen gesperrt oder weitergearbeitet
+  const remote = await cloudGet(cfg);
+  if (moved()) return 'retry';
+  if (remote && remote.sha === st.sha && !dirty) return 'none';
+  if (remote && remote.sha !== st.sha) {
+    const r = await openCloudBlob(remote.blob);
+    if (moved()) return 'retry';
+    if (st.sha && !dirty) { await applyCloud(cfg, remote, r); return 'pulled'; }
+    let base;
+    if (st.sha) { try { const bj = await gh(cfg, '/git/blobs/' + st.sha); base = await openAny(JSON.parse(atob(bj.content.replace(/\s/g, ''))), [[Vault.key, Vault.salt], [r.key, r.salt]]); } catch (e) { base = undefined; } }
+    if (moved()) return 'retry';
+    const merged = mergeDb(base, JSON.parse(JSON.stringify(db)), r.data);
+    merged.settings.sync = cfg; merged.settings.lastChange = Date.now();
+    Vault.key = r.key; Vault.salt = r.salt; db = merged; // es gilt das Passwort des Cloud-Stands
+    await settled(); await Vault.save(db);
+    const sha = await cloudPut(cfg, localStorage.getItem(VAULT), remote.sha);
+    setSyncState({ sha, at: Date.now(), dir: 'merge', change: merged.settings.lastChange });
+    return 'merged';
+  }
+  const sha = await cloudPut(cfg, localStorage.getItem(VAULT), remote && remote.sha);
+  setSyncState({ sha, at: Date.now(), dir: 'up', change: mark });
+  return 'pushed';
+}
+async function autoSync(manual, force) {
+  if (!db || !db.settings.sync) return;
+  if (syncBusy) { syncAgain = true; return; }
+  if (!manual && !force && modalOpen()) return syncSchedule(8000);
+  syncBusy = true; clearTimeout(syncTimer);
+  try {
+    const res = await syncOnce(); syncErr = '';
+    if (res === 'retry') syncAgain = true;
+    else if (res === 'pulled' || res === 'merged') { render(); toast(res === 'merged' ? 'Abgeglichen: Änderungen beider Geräte zusammengeführt.' : 'Neuer Stand von einem anderen Gerät geladen.'); }
+    else {
+      if (manual) toast(res === 'pushed' ? 'Abgeglichen: Änderungen hochgeladen.' : 'Alles aktuell.');
+      if (db && location.hash.startsWith('#/einstellungen') && !modalOpen()) render();
+    }
+  } catch (e) {
+    syncErr = e instanceof SyncError ? e.message : 'Abgleich fehlgeschlagen: ' + e.message;
+    if (!(e instanceof SyncError)) console.error(e);
+    if (manual) alert(syncErr);
+  } finally { syncBusy = false; if (syncAgain) { syncAgain = false; syncSchedule(1500); } }
+}
+A.syncNow = () => autoSync(true);
+document.addEventListener('visibilitychange', () => {
+  if (!db || !db.settings.sync) return;
+  if (document.visibilityState === 'visible') autoSync(); else if (syncDirty()) autoSync(false, true);
+});
+addEventListener('online', () => syncSchedule(1000));
 let syncBusy = false;
 async function syncRun(label, fn) {
   if (syncBusy) return; syncBusy = true; toast(label);
@@ -1109,26 +1234,14 @@ A.syncConnect = e => {
   syncRun('Prüfe Verbindung …', async () => {
     const cfg = syncCfg(f.repo.value, f.token.value);
     await cloudCheck(cfg);
-    const remote = await cloudGet(cfg);
     if (!db) return;
-    db.settings.sync = cfg; persist(); render();
-    toast(remote ? 'Verbunden. In der Cloud liegt schon ein Stand vom ' + fmtStamp(remote.blob.saved) + '.' : 'Verbunden. Die Cloud ist noch leer: jetzt hochladen.');
-  });
+    db.settings.sync = cfg; persist(); render(); toast('Verbunden. Gleiche ab …');
+  }).then(() => autoSync(true));
 };
 A.syncDisconnect = () => {
   if (!confirm('Verbindung zur Cloud trennen? Die Daten auf diesem Gerät und in der Cloud bleiben erhalten.')) return;
-  delete db.settings.sync; localStorage.removeItem(SYNC_STATE); persist(); render(); toast('Verbindung getrennt.');
+  clearTimeout(syncTimer); syncErr = ''; delete db.settings.sync; localStorage.removeItem(SYNC_STATE); persist(); render(); toast('Verbindung getrennt.');
 };
-A.syncUpload = () => syncRun('Lade hoch …', async () => {
-  const cfg = db.settings.sync; await saving;
-  const remote = await cloudGet(cfg), st = syncState();
-  if (remote && remote.sha !== st.sha && !confirm(`In der Cloud liegt ein Stand vom ${fmtStamp(remote.blob.saved)}, den dieses Gerät noch nicht geladen hat. Mit dem Stand dieses Geräts ÜBERSCHREIBEN?`)) return;
-  if (!db) return;
-  const change = db.settings.lastChange || 0;
-  const sha = await cloudPut(cfg, localStorage.getItem(VAULT), remote && remote.sha);
-  setSyncState({ sha, at: Date.now(), dir: 'up', change });
-  if (db) render(); toast('Hochgeladen.');
-});
 // Entschlüsselt einen Cloud-Stand: mit dem Schlüssel dieses Geräts, sonst mit einem abgefragten Passwort.
 async function openCloudBlob(blob) {
   if (Vault.key && blob.salt === b64(Vault.salt)) { try { return await Vault.decryptWithKey(blob); } catch (e) {} }
@@ -1180,7 +1293,7 @@ A.changePassword = () => {
       await saving;
       try { await Vault.decryptBlob(JSON.parse(localStorage.getItem(VAULT)), f.old.value); } catch (e) { f.old.classList.add('invalid'); toast('Aktuelles Passwort falsch.'); return false; }
       if (f.p1.value.length < 6 || f.p1.value !== f.p2.value) { f.p2.classList.add('invalid'); toast('Neue Passwörter ungültig oder ungleich.'); return false; }
-      await Vault.create(f.p1.value); await Vault.save(db); toast('Passwort geändert.');
+      await Vault.create(f.p1.value); persist(); await saving; toast(db.settings.sync ? 'Passwort geändert. Andere Geräte fragen beim nächsten Abgleich danach.' : 'Passwort geändert.');
     }
   });
 };
