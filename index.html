@@ -224,14 +224,15 @@ const Vault = {
 
 let db = null;
 let saving = Promise.resolve();
-function persist() {
+function persist(noMark) {
   if (!db || !Vault.key) return;
+  if (!noMark) db.settings.lastChange = Date.now();
   const snap = JSON.parse(JSON.stringify(db));
   saving = saving.then(() => Vault.save(snap)).catch(e => { console.error(e); alert('Speichern fehlgeschlagen: ' + e.message); });
 }
 function normalize(d) {
   d = d || {}; d.version = 1;
-  d.settings = Object.assign({ autoLockMin: 10, lastBackup: null }, d.settings || {});
+  d.settings = Object.assign({ autoLockMin: 10, lastBackup: null, autoBackup: 'daily' }, d.settings || {});
   for (const k of ['classes', 'grades', 'contribs', 'remarks', 'attendance']) if (!Array.isArray(d[k])) d[k] = [];
   d.classes.forEach(c => { c.students ||= []; c.todos ||= []; c.type ||= /sport/i.test(c.subject || '') ? 'sport' : 'standard'; if (c.wBig == null) c.wBig = 2; if (c.wSmall == null) c.wSmall = 1; });
   return d;
@@ -337,7 +338,8 @@ A.createVault = async e => {
 A.unlock = async e => {
   e.preventDefault(); busy(true);
   try { db = normalize(await Vault.unlock(e.target.elements.pw.value)); lastAct = Date.now(); requestPersist(); render(); }
-  catch (err) { renderLock('Falsches Passwort.'); }
+  catch (err) { return renderLock('Falsches Passwort.'); }
+  maybeAutoBackup().catch(err => console.error(err));
 };
 A.lock = async () => { await saving; db = null; Vault.key = null; Vault.salt = null; A.closeModal(); renderLock(); };
 let lastAct = Date.now();
@@ -876,7 +878,9 @@ function renderSettings() {
   app.innerHTML = header('Einstellungen', '#/') + `<main>
     <div class="card"><h2>Datensicherung</h2><p class="hint">Die Daten liegen nur in diesem Browser auf diesem Gerät. Wenn du den Browser-Speicher löschst oder das Gerät verlierst, sind sie weg. Exportiere deshalb regelmäßig eine Sicherung (verschlüsselt, mit deinem Passwort) und lege sie z. B. auf einen USB-Stick oder deinen PC. Mit derselben Datei kannst du die Daten auch auf ein anderes Gerät übertragen.</p>
     <div class="sub">Letzte Sicherung: <b>${s.lastBackup ? fmtDate(s.lastBackup) : 'noch nie'}</b></div>
-    <button class="btn pri block mt" onclick="A.exportBackup()">⬇︎ Sicherung exportieren</button>
+    <label class="mt">Automatische Sicherung beim Entsperren<select onchange="A.setAutoBackup(this.value)">${[['daily', 'täglich'], ['weekly', 'wöchentlich'], ['off', 'aus']].map(([v, l]) => `<option value="${v}" ${s.autoBackup === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <p class="hint">Wenn seit der letzten Sicherung etwas geändert wurde, erstellt die App nach der Passworteingabe eine neue Sicherungsdatei: am PC und unter Android im Download-Ordner, am iPhone über „In Dateien sichern“. Alte Dateien kannst du gelegentlich löschen.</p>
+    <button class="btn pri block mt" onclick="A.exportBackup()">⬇︎ Sicherung jetzt exportieren</button>
     <button class="btn block mt" onclick="A.importBackup(false)">⬆︎ Sicherung importieren (ersetzt alle Daten)</button></div>
     <div class="card"><h2>Sicherheit</h2>
     <label>Automatisch sperren nach<select onchange="A.setAutoLock(this.value)">${[[2, '2 Minuten'], [5, '5 Minuten'], [10, '10 Minuten'], [30, '30 Minuten'], [0, 'nie']].map(([v, l]) => `<option value="${v}" ${+s.autoLockMin === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -886,15 +890,47 @@ function renderSettings() {
     <p class="sub" style="text-align:center">Klassenbuch · Version 1.0</p></main>`;
 }
 A.setAutoLock = v => { db.settings.autoLockMin = +v; persist(); toast('Gespeichert.'); };
-A.exportBackup = async () => {
+A.setAutoBackup = v => { db.settings.autoBackup = v; persist(); toast('Gespeichert.'); };
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let pendingBackup = null;
+async function backupFile() {
   await saving;
-  db.settings.lastBackup = today();
   const blob = await Vault.encryptWith(Vault.key, Vault.salt, db);
-  download(`klassenbuch-sicherung-${today()}.kbk`, JSON.stringify(blob), 'application/octet-stream');
-  persist(); render(); toast('Sicherung exportiert (siehe Downloads).');
+  return new File([JSON.stringify(blob)], `klassenbuch-sicherung-${today()}.kbk`, { type: 'application/octet-stream' });
+}
+function backupDone(msg) { db.settings.lastBackup = today(); db.settings.lastBackupAt = Date.now(); persist(true); render(); toast(msg); }
+// Auf dem iPhone über das Teilen-Menü (muss direkt durch einen Tipp ausgelöst werden), sonst als Download.
+async function deliverBackup(file) {
+  if (isIOS && navigator.canShare) {
+    const variants = [file, new File([file], file.name, { type: 'text/plain' })];
+    for (const f of variants) {
+      if (!navigator.canShare({ files: [f] })) continue;
+      try { await navigator.share({ files: [f] }); return true; } catch (e) { if (e.name === 'AbortError') return false; }
+    }
+  }
+  download(file.name, file, file.type); return true;
+}
+A.exportBackup = async () => {
+  const file = await backupFile();
+  if (await deliverBackup(file)) backupDone(isIOS ? 'Sicherung exportiert.' : 'Sicherung exportiert (siehe Downloads).');
 };
+async function maybeAutoBackup() {
+  const s = db.settings;
+  if (s.autoBackup === 'off' || !db.classes.length) return;
+  const days = s.autoBackup === 'weekly' ? 7 : 1;
+  if (s.lastBackup && (new Date(today()) - new Date(s.lastBackup)) / 864e5 < days) return;
+  if (s.lastBackupAt && (s.lastChange || 0) <= s.lastBackupAt) return; // seit der letzten Sicherung nichts geändert
+  const file = await backupFile();
+  if (!db) return;
+  if (isIOS) {
+    pendingBackup = file;
+    openModal('Automatische Sicherung', `<p>Seit der letzten Sicherung${s.lastBackup ? ' vom ' + fmtDate(s.lastBackup) : ''} wurden Daten geändert. Tippe auf „Jetzt sichern“ und wähle dann „In Dateien sichern“.</p>
+      <button type="button" class="btn pri block" onclick="A.autoShare()">Jetzt sichern</button>`, { cancelLabel: 'Später' });
+  } else { download(file.name, file, file.type); backupDone('Automatische Sicherung gespeichert (Downloads).'); }
+}
+A.autoShare = async () => { if (pendingBackup && await deliverBackup(pendingBackup)) { pendingBackup = null; A.closeModal(); backupDone('Sicherung gespeichert.'); } };
 A.importBackup = async locked => {
-  const file = await pickFile('.kbk,.json,application/json,application/octet-stream');
+  const file = await pickFile(isIOS ? '' : '.kbk,.json,.txt,application/json,application/octet-stream');
   let blob; try { blob = JSON.parse(await file.text()); } catch (e) { return toast('Keine gültige Sicherungsdatei.'); }
   if (!blob || blob.app !== 'klassenbuch') return toast('Keine Klassenbuch-Sicherung.');
   const pw = await askPassword('Passwort der Sicherung');
