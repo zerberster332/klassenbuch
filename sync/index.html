@@ -1040,9 +1040,10 @@ const fmtStamp = t => t ? new Date(t).toLocaleString('de-DE', { dateStyle: 'shor
 class SyncError extends Error {}
 function syncCfg(repo, token) {
   repo = String(repo || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
-  token = String(token || '').trim();
+  token = String(token || '').replace(/\s+/g, '');
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new SyncError('Repository bitte in der Form benutzername/name angeben.');
   if (!token) throw new SyncError('Der Zugangsschlüssel fehlt.');
+  if (!/^(github_pat_|ghp_)/.test(token)) throw new SyncError('Das ist kein GitHub-Zugangsschlüssel. Er beginnt immer mit „github_pat_“ und ist etwa 90 Zeichen lang. Im Feld stehen ' + token.length + ' Zeichen mit einem anderen Anfang. Kopiere den Schlüssel bei GitHub mit dem Kopier-Symbol und füge ihn hier ein.');
   return { repo, token };
 }
 async function gh(cfg, path, opts = {}) {
@@ -1055,7 +1056,7 @@ async function gh(cfg, path, opts = {}) {
     });
   } catch (e) { throw new SyncError('Keine Verbindung zu GitHub. Bist du online?'); }
   if (r.status === 404 && opts.allow404) return null;
-  if (r.status === 401) throw new SyncError('GitHub lehnt den Zugangsschlüssel ab (falsch oder abgelaufen).');
+  if (r.status === 401) throw new SyncError('GitHub lehnt den Zugangsschlüssel ab. Gesendet wurden ' + cfg.token.length + ' Zeichen; ein vollständiger Schlüssel hat etwa 90. Wenn die Zahl nicht passt, wurde er unvollständig kopiert. Sonst bei GitHub „Regenerate token“ wählen und den neuen Schlüssel einfügen.');
   if (r.status === 409 || r.status === 422) throw new SyncError('Der Stand in der Cloud hat sich gerade geändert. Bitte noch einmal versuchen.');
   if (r.status === 403 || r.status === 404) throw new SyncError(opts.method === 'PUT'
     ? 'Der Zugangsschlüssel darf nicht schreiben. Er braucht für dieses Repository „Contents: Read and write“.'
@@ -1085,7 +1086,7 @@ function syncCard() {
   const cfg = db.settings.sync, st = syncState();
   if (!cfg) return `<div class="card"><h2>Cloud-Abgleich</h2><p class="hint">Gleicht das Klassenbuch zwischen Handy, iPad und PC ab. Übertragen wird nur die verschlüsselte Datei, in ein privates GitHub-Repository, das dir gehört. Dein Passwort verlässt das Gerät nie.</p>
     <form onsubmit="A.syncConnect(event)"><label>Repository (benutzername/name)<input name="repo" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="z. B. meinname/klassenbuch-daten"></label>
-    <label>Zugangsschlüssel (Token)<input type="password" name="token" autocomplete="off"></label>
+    <label>Zugangsschlüssel (Token, beginnt mit github_pat_)<input type="text" name="token" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></label>
     <button class="btn pri block mt">Verbinden</button></form></div>`;
   const open = (db.settings.lastChange || 0) > (st.change || 0);
   return `<div class="card"><h2>Cloud-Abgleich</h2>
@@ -1154,7 +1155,7 @@ A.syncDownload = () => syncRun('Lade aus der Cloud …', async () => {
 A.cloudFirstLoad = () => {
   openModal('Aus der Cloud laden', `<p class="hint">Für ein Gerät, auf dem das Klassenbuch noch nicht eingerichtet ist. Du brauchst das Repository, den Zugangsschlüssel und dein Klassenbuch-Passwort.</p>
     <label>Repository (benutzername/name)<input name="repo" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus></label>
-    <label>Zugangsschlüssel (Token)<input type="password" name="token" autocomplete="off"></label>
+    <label>Zugangsschlüssel (Token, beginnt mit github_pat_)<input type="text" name="token" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></label>
     <label>Klassenbuch-Passwort<input type="password" name="pw" autocomplete="current-password"></label>`, {
     saveLabel: 'Laden',
     onSave: async f => {
