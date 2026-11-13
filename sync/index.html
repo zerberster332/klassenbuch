@@ -932,6 +932,8 @@ function studentLog(s) {
     if (a.note) add(a.date, '', a.note);
   }
   const cs = db.contribs.filter(x => x.studentId === s.id);
+  const ub = {}; cs.filter(x => ['++', '+', '-', '--'].includes(x.val)).forEach(x => (ub[x.date] ||= []).push(x));
+  for (const d in ub) add(d, contribChips(ub[d]));
   for (const [val, label, cls] of [['HA', 'HA fehlt', 'hw'], ['MAT', 'Material fehlt', 'mat-c']]) {
     const n = {}; cs.filter(x => x.val === val).forEach(x => { n[x.date] = (n[x.date] || 0) + 1; });
     for (const d in n) add(d, `<span class="${cls}">${label}${n[d] > 1 ? ' ×' + n[d] : ''}</span>`);
@@ -942,7 +944,7 @@ function studentLogHtml(c, s, st) {
   const log = studentLog(s), sport = c.type === 'sport';
   const sum = (sport
     ? [['gefehlt', st.fehlt, 'mi'], ['passiv', st.passiv, 'hw'], ['Sportzeug vergessen', st.vergessen, 'mi'], ['befreit', st.befreit, 'sub']]
-    : [['HA vergessen', st.ha, 'hw']].concat(st.mat ? [['Material vergessen', st.mat, 'mat-c']] : []))
+    : [['++', st.plus2, 'pl'], ['+', st.plus, 'pl'], ['−', st.minus, 'mi'], ['−−', st.minus2, 'mi'], ['HA fehlt', st.ha, 'hw']].concat(st.mat ? [['Material', st.mat, 'mat-c']] : []))
     .map(([l, n, cls]) => `<div><div class="v ${n ? cls : ''}">${n}</div><div class="l">${l}</div></div>`).join('');
   const wd = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short' });
   const month = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
@@ -953,11 +955,11 @@ function studentLogHtml(c, s, st) {
     rows += `<div class="item" style="min-height:40px"><div class="grow"><b>${wd(e.date)} ${fmtDate(e.date)}</b>${e.notes.length ? `<div class="sub">${e.notes.map(h).join(' · ')}</div>` : ''}</div><div style="text-align:right">${e.tags.join('<br>') || '<span class="sub">Notiz</span>'}</div></div>`;
   }
   const period = x => (x.from ? fmtDate(x.from) : 'offen') + ' bis ' + (x.until ? fmtDate(x.until) : 'offen');
-  return `<div class="card"><div class="sub">Insgesamt</div><div class="stats" style="grid-template-columns:repeat(${sport ? 4 : st.mat ? 2 : 1},1fr)">${sum}</div></div>
+  return `<div class="card"><div class="sub">Insgesamt</div><div class="stats" style="grid-template-columns:repeat(${sport ? 4 : st.mat ? 6 : 5},1fr)">${sum}</div></div>
     ${s.away ? `<div class="card"><b>${h(s.away.label || 'Länger abwesend')}</b><div class="sub">${period(s.away)}</div></div>` : ''}
     ${sport && s.exempt ? `<div class="card"><b>🩹 Sportbefreiung</b><div class="sub">${period(s.exempt)}${s.exempt.note ? ' · ' + h(s.exempt.note) : ''}</div></div>` : ''}
-    ${log.length ? rows + '</div>' : `<div class="card empty">Keine Einträge: nie gefehlt${sport ? ', nie passiv, nichts vergessen' : ' eingetragen, keine Hausaufgabe vergessen'}.</div>`}
-    <p class="hint">${sport ? 'Gezeigt werden alle Stunden, in denen etwas auffällig war. Stunden mit „aktiv“ und Sportzeug dabei stehen nicht in der Liste.' : 'Gezeigt werden alle Tage mit vergessener Hausaufgabe. Die Beiträge (++ bis −−) stehen in der Übersicht.'}</p>`;
+    ${log.length ? rows + '</div>' : `<div class="card empty">Keine Einträge: nie gefehlt${sport ? ', nie passiv, nichts vergessen' : ', keine Beiträge, keine Hausaufgabe vergessen'}.</div>`}
+    <p class="hint">${sport ? 'Gezeigt werden alle Stunden, in denen etwas auffällig war. Stunden mit „aktiv“ und Sportzeug dabei stehen nicht in der Liste.' : 'Gezeigt wird jeder Tag mit einem Eintrag: Beiträge (++ bis −−) und vergessene Hausaufgaben, jeweils mit Datum.'}</p>`;
 }
 function renderStudent(c, sid, view) {
   const noten = view === 'noten', verlauf = view === 'verlauf', sfx = noten ? '/noten' : verlauf ? '/verlauf' : '';
