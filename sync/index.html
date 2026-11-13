@@ -621,7 +621,7 @@ function strichliste(c) {
   const src = (sport ? db.attendance : db.contribs).filter(x => x.classId === c.id && x.date >= since);
   const hotCols = sport ? ['passiv', 'fehlt', 'verg'] : ['HA'];
   const rows = sts.map(s => { const mine = src.filter(x => x.studentId === s.id);
-    return `<tr class="tap ${isAway(s) ? 'away' : ''}" onclick="location.hash='#/s/${c.id}/${s.id}'"><td>${h(s.last)}, ${h(s.first.split(' ')[0])}</td>${cols.map(([k, , fn]) => { const n = mine.filter(fn).length; return `<td class="${hotCols.includes(k) && n >= 3 ? 'hot' : ''}">${n ? (n <= 6 && hotCols.includes(k) ? '|'.repeat(n) : n) : '·'}</td>`; }).join('')}</tr>`; }).join('');
+    return `<tr class="tap ${isAway(s) ? 'away' : ''}" onclick="location.hash='#/s/${c.id}/${s.id}/verlauf'"><td>${h(s.last)}, ${h(s.first.split(' ')[0])}</td>${cols.map(([k, , fn]) => { const n = mine.filter(fn).length; return `<td class="${hotCols.includes(k) && n >= 3 ? 'hot' : ''}">${n ? (n <= 6 && hotCols.includes(k) ? '|'.repeat(n) : n) : '·'}</td>`; }).join('')}</tr>`; }).join('');
   const lessons = sport ? new Set(src.map(a => a.date)).size : null;
   return `<div class="card"><label style="margin:0">Zählen ab<input type="date" value="${since}" onchange="A.setSince(this.value)"></label>
     <p class="hint" style="margin-bottom:0">${sport ? `${lessons} erfasste Sportstunden seit ${fmtDate(since)}. ` : ''}Ab 3 Strichen rot markiert. Tippe auf einen Namen für Details.</p></div>
@@ -920,8 +920,47 @@ A.deleteClass = cid => {
 };
 
 /* ---------- Schülerseite ---------- */
+/* Verlauf eines Schülers: alle Tage mit Auffälligkeiten (gefehlt, passiv, befreit, Sportzeug/HA vergessen), neueste zuerst. */
+function studentLog(s) {
+  const map = {};
+  const add = (d, tag, note) => { const e = (map[d] ||= { tags: [], notes: [] }); if (tag) e.tags.push(tag); if (note) e.notes.push(note); };
+  for (const a of db.attendance.filter(a => a.studentId === s.id)) {
+    if (a.status === 'fehlt') add(a.date, '<span class="mi">fehlt</span>');
+    else if (a.status === 'befreit') add(a.date, '<span class="tag">🩹 befreit</span>');
+    else if (a.status === 'passiv') add(a.date, '<span class="hw">passiv</span>');
+    if (a.kit === 'vergessen') add(a.date, '<span class="mi">👕 Sportzeug vergessen</span>');
+    if (a.note) add(a.date, '', a.note);
+  }
+  const cs = db.contribs.filter(x => x.studentId === s.id);
+  for (const [val, label, cls] of [['HA', 'HA fehlt', 'hw'], ['MAT', 'Material fehlt', 'mat-c']]) {
+    const n = {}; cs.filter(x => x.val === val).forEach(x => { n[x.date] = (n[x.date] || 0) + 1; });
+    for (const d in n) add(d, `<span class="${cls}">${label}${n[d] > 1 ? ' ×' + n[d] : ''}</span>`);
+  }
+  return Object.keys(map).sort().reverse().map(d => ({ date: d, ...map[d] }));
+}
+function studentLogHtml(c, s, st) {
+  const log = studentLog(s), sport = c.type === 'sport';
+  const sum = (sport
+    ? [['gefehlt', st.fehlt, 'mi'], ['passiv', st.passiv, 'hw'], ['Sportzeug vergessen', st.vergessen, 'mi'], ['befreit', st.befreit, 'sub']]
+    : [['HA vergessen', st.ha, 'hw']].concat(st.mat ? [['Material vergessen', st.mat, 'mat-c']] : []))
+    .map(([l, n, cls]) => `<div><div class="v ${n ? cls : ''}">${n}</div><div class="l">${l}</div></div>`).join('');
+  const wd = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short' });
+  const month = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+  let last = '', rows = '';
+  for (const e of log) {
+    const m = month(e.date);
+    if (m !== last) { rows += `${last ? '</div>' : ''}<div class="sec">${m}</div><div class="list">`; last = m; }
+    rows += `<div class="item" style="min-height:40px"><div class="grow"><b>${wd(e.date)} ${fmtDate(e.date)}</b>${e.notes.length ? `<div class="sub">${e.notes.map(h).join(' · ')}</div>` : ''}</div><div style="text-align:right">${e.tags.join('<br>') || '<span class="sub">Notiz</span>'}</div></div>`;
+  }
+  const period = x => (x.from ? fmtDate(x.from) : 'offen') + ' bis ' + (x.until ? fmtDate(x.until) : 'offen');
+  return `<div class="card"><div class="sub">Insgesamt</div><div class="stats" style="grid-template-columns:repeat(${sport ? 4 : st.mat ? 2 : 1},1fr)">${sum}</div></div>
+    ${s.away ? `<div class="card"><b>${h(s.away.label || 'Länger abwesend')}</b><div class="sub">${period(s.away)}</div></div>` : ''}
+    ${sport && s.exempt ? `<div class="card"><b>🩹 Sportbefreiung</b><div class="sub">${period(s.exempt)}${s.exempt.note ? ' · ' + h(s.exempt.note) : ''}</div></div>` : ''}
+    ${log.length ? rows + '</div>' : `<div class="card empty">Keine Einträge: nie gefehlt${sport ? ', nie passiv, nichts vergessen' : ' eingetragen, keine Hausaufgabe vergessen'}.</div>`}
+    <p class="hint">${sport ? 'Gezeigt werden alle Stunden, in denen etwas auffällig war. Stunden mit „aktiv“ und Sportzeug dabei stehen nicht in der Liste.' : 'Gezeigt werden alle Tage mit vergessener Hausaufgabe. Die Beiträge (++ bis −−) stehen in der Übersicht.'}</p>`;
+}
 function renderStudent(c, sid, view) {
-  const noten = view === 'noten', sfx = noten ? '/noten' : '';
+  const noten = view === 'noten', verlauf = view === 'verlauf', sfx = noten ? '/noten' : verlauf ? '/verlauf' : '';
   const s = c.students.find(x => x.id === sid), st = stats(c, sid);
   const sorted = sortStudents(c.students), idx = sorted.findIndex(x => x.id === sid);
   const prev = sorted[idx - 1], next = sorted[idx + 1];
@@ -932,9 +971,10 @@ function renderStudent(c, sid, view) {
   const dates = Object.keys(byDate).sort().reverse();
   const td = cs.filter(x => x.date === today());
   const att = db.attendance.filter(a => a.studentId === sid).sort((a, b) => b.date.localeCompare(a.date));
-  const sw = `<div class="seg full-seg"><button class="${noten ? '' : 'on'}" onclick="location.replace('#/s/${c.id}/${sid}')">Übersicht</button><button class="${noten ? 'on' : ''}" onclick="location.replace('#/s/${c.id}/${sid}/noten')">📝 Noten</button></div>`;
+  const sw = `<div class="seg full-seg"><button class="${noten || verlauf ? '' : 'on'}" onclick="location.replace('#/s/${c.id}/${sid}')">Übersicht</button><button class="${verlauf ? 'on' : ''}" onclick="location.replace('#/s/${c.id}/${sid}/verlauf')">📅 Verlauf</button><button class="${noten ? 'on' : ''}" onclick="location.replace('#/s/${c.id}/${sid}/noten')">📝 Noten</button></div>`;
   const nav = `<div class="navstud mt">${prev ? `<button class="btn" onclick="location.replace('#/s/${c.id}/${prev.id}${sfx}')">‹ ${h(prev.first)}</button>` : '<span style="flex:1"></span>'}${next ? `<button class="btn" onclick="location.replace('#/s/${c.id}/${next.id}${sfx}')">${h(next.first)} ›</button>` : '<span style="flex:1"></span>'}</div>`;
   const head = header(`${s.first} ${s.last}`, `#/c/${c.id}/${noten ? 'noten' : 'schueler'}`, [['✎', `A.editStudent('${c.id}','${sid}')`, 'Schüler bearbeiten']]);
+  if (verlauf) { app.innerHTML = head + `<main>${sw}${studentLogHtml(c, s, st)}${nav}</main>`; return; }
   if (noten) {
     app.innerHTML = head + `<main>${sw}
     <div class="card"><div class="stats"><div><div class="v">${f2(st.total)}</div><div class="l">Gesamt</div></div><div><div class="v">${f2(st.big)}</div><div class="l">Schnitt groß</div></div><div><div class="v">${f2(st.small)}</div><div class="l">Schnitt klein</div></div></div></div>
