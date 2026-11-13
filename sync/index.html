@@ -1042,9 +1042,14 @@ A.importBackup = async locked => {
   const d = normalize(r.data);
   const n = d.classes.length, m = d.classes.reduce((a, c) => a + c.students.length, 0);
   if ((Vault.exists() || db) && !confirm(`Sicherung vom ${blob.saved ? fmtDate(blob.saved.slice(0, 10)) : '?'} mit ${n} Klassen und ${m} Schülern laden? Die aktuellen Daten auf diesem Gerät werden dabei ERSETZT.`)) return;
-  Vault.key = r.key; Vault.salt = r.salt; db = d;
+  // Eine bestehende Cloud-Verbindung bleibt erhalten; die importierten Daten werden danach hochgeladen.
+  const keepSync = db && db.settings.sync;
+  if (keepSync) d.settings.sync = keepSync; else delete d.settings.sync;
+  d.settings.lastChange = Date.now();
+  await settled(); Vault.key = r.key; Vault.salt = r.salt; db = d;
   await Vault.save(db); requestPersist(); lastAct = Date.now();
-  location.hash = '#/'; render(); toast('Sicherung geladen. Es gilt das Passwort der Sicherung.');
+  location.hash = '#/'; render(); toast(keepSync ? 'Sicherung geladen. Sie wird jetzt in die Cloud übertragen. Es gilt das Passwort der Sicherung.' : 'Sicherung geladen. Es gilt das Passwort der Sicherung.');
+  if (keepSync) autoSync();
 };
 /* ---------- Cloud-Abgleich: nur das verschlüsselte Klassenbuch, in ein privates GitHub-Repository ---------- */
 const SYNC_STATE = 'klassenbuch_sync_state', SYNC_FILE = 'klassenbuch.kbk';
