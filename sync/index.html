@@ -1053,9 +1053,10 @@ const setSyncState = o => localStorage.setItem(SYNC_STATE, JSON.stringify(o));
 const fmtStamp = t => t ? new Date(t).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '?';
 class SyncError extends Error {}
 function syncCfg(repo, token) {
-  repo = String(repo || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+  // Leerzeichen und von der Handy-Tastatur veränderte Bindestriche bereinigen. Das Feld darf leer bleiben.
+  repo = String(repo || '').replace(/\s+/g, '').replace(/[‐-―−]/g, '-').replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
   token = String(token || '').replace(/\s+/g, '');
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new SyncError('Repository bitte in der Form benutzername/name angeben.');
+  if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new SyncError('Repository bitte in der Form benutzername/name angeben oder das Feld leer lassen.');
   if (!token) throw new SyncError('Der Zugangsschlüssel fehlt.');
   if (!/^(github_pat_|ghp_)/.test(token)) throw new SyncError('Das ist kein GitHub-Zugangsschlüssel. Er beginnt immer mit „github_pat_“ und ist etwa 90 Zeichen lang. Im Feld stehen ' + token.length + ' Zeichen mit einem anderen Anfang. Kopiere den Schlüssel bei GitHub mit dem Kopier-Symbol und füge ihn hier ein.');
   return { repo, token };
@@ -1063,7 +1064,7 @@ function syncCfg(repo, token) {
 async function gh(cfg, path, opts = {}) {
   let r;
   try {
-    r = await fetch('https://api.github.com/repos/' + cfg.repo + path, {
+    r = await fetch(opts.url || 'https://api.github.com/repos/' + cfg.repo + path, {
       method: opts.method || 'GET', cache: 'no-store', referrerPolicy: 'no-referrer',
       headers: { Authorization: 'Bearer ' + cfg.token, Accept: 'application/vnd.github+json' },
       body: opts.body ? JSON.stringify(opts.body) : undefined
@@ -1072,15 +1073,32 @@ async function gh(cfg, path, opts = {}) {
   if (r.status === 404 && opts.allow404) return null;
   if (r.status === 401) throw new SyncError('GitHub lehnt den Zugangsschlüssel ab. Gesendet wurden ' + cfg.token.length + ' Zeichen; ein vollständiger Schlüssel hat etwa 90. Wenn die Zahl nicht passt, wurde er unvollständig kopiert. Sonst bei GitHub „Regenerate token“ wählen und den neuen Schlüssel einfügen.');
   if (r.status === 409 || r.status === 422) throw new SyncError('Der Stand in der Cloud hat sich gerade geändert. Bitte noch einmal versuchen.');
-  if (r.status === 403 || r.status === 404) throw new SyncError(opts.method === 'PUT'
-    ? 'Der Zugangsschlüssel darf nicht schreiben. Er braucht für dieses Repository „Contents: Read and write“.'
-    : 'Kein Zugriff auf dieses Repository. Prüfe den Namen und die Berechtigung des Zugangsschlüssels.');
+  if (r.status === 403 || r.status === 404) {
+    const e = new SyncError(opts.method === 'PUT'
+      ? 'Der Zugangsschlüssel darf nicht schreiben. Er braucht für dieses Repository „Contents: Read and write“.'
+      : 'Kein Zugriff auf „' + cfg.repo + '“ (GitHub-Antwort ' + r.status + '). Prüfe den Namen und die Berechtigung des Zugangsschlüssels.');
+    e.access = true; throw e;
+  }
   if (!r.ok) throw new SyncError('GitHub meldet einen Fehler (' + r.status + ').');
   return r.json();
 }
+// Prüft die Verbindung. Ist der Name leer oder vertippt, wird das private Repository gesucht, auf das der Schlüssel Zugriff hat.
 async function cloudCheck(cfg) {
-  const info = await gh(cfg, '');
-  if (info.private === false) throw new SyncError('Dieses Repository ist öffentlich. Für die Daten muss es privat sein.');
+  const typed = cfg.repo;
+  if (typed) {
+    try {
+      const info = await gh(cfg, '');
+      if (info.private === false) throw new SyncError('Das Repository „' + typed + '“ ist öffentlich. Für die Daten muss es privat sein.');
+      if (info.full_name) cfg.repo = info.full_name;
+      return;
+    } catch (e) { if (!e.access) throw e; }
+  }
+  let list;
+  try { list = (await gh(cfg, '', { url: 'https://api.github.com/user/repos?per_page=100' })).filter(x => x.private); }
+  catch (e) { if (!e.access) throw e; list = []; }
+  if (list.length === 1) { cfg.repo = list[0].full_name; return; }
+  if (!list.length) throw new SyncError((typed ? 'Kein Zugriff auf „' + typed + '“. ' : '') + 'Der Zugangsschlüssel hat auf kein privates Repository Zugriff. Bei GitHub muss für ihn das Repository „klassenbuch-daten“ ausgewählt sein, mit „Contents: Read and write“.');
+  throw new SyncError('Der Zugangsschlüssel hat Zugriff auf mehrere private Repositories: ' + list.map(x => x.full_name).join(', ') + '. Bitte eines davon ins Feld „Repository“ eintragen.');
 }
 async function cloudGet(cfg) {
   const j = await gh(cfg, '/contents/' + SYNC_FILE, { allow404: true });
@@ -1099,7 +1117,7 @@ async function cloudPut(cfg, text, sha) {
 function syncCard() {
   const cfg = db.settings.sync, st = syncState();
   if (!cfg) return `<div class="card"><h2>Cloud-Abgleich</h2><p class="hint">Gleicht das Klassenbuch zwischen Handy, iPad und PC ab. Übertragen wird nur die verschlüsselte Datei, in ein privates GitHub-Repository, das dir gehört. Dein Passwort verlässt das Gerät nie.</p>
-    <form onsubmit="A.syncConnect(event)"><label>Repository (benutzername/name)<input name="repo" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="z. B. meinname/klassenbuch-daten"></label>
+    <form onsubmit="A.syncConnect(event)"><label>Repository (kann leer bleiben, wird dann automatisch gefunden)<input name="repo" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="z. B. meinname/klassenbuch-daten"></label>
     <label>Zugangsschlüssel (Token, beginnt mit github_pat_)<input type="text" name="token" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></label>
     <button class="btn pri block mt">Verbinden</button></form></div>`;
   const dirLabel = { down: 'geladen', up: 'hochgeladen', merge: 'zusammengeführt' }[st.dir] || '';
@@ -1266,8 +1284,8 @@ A.syncDownload = () => syncRun('Lade aus der Cloud …', async () => {
 });
 // Neues Gerät: Klassenbuch direkt vom Sperrbildschirm aus der Cloud holen.
 A.cloudFirstLoad = () => {
-  openModal('Aus der Cloud laden', `<p class="hint">Für ein Gerät, auf dem das Klassenbuch noch nicht eingerichtet ist. Du brauchst das Repository, den Zugangsschlüssel und dein Klassenbuch-Passwort.</p>
-    <label>Repository (benutzername/name)<input name="repo" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus></label>
+  openModal('Aus der Cloud laden', `<p class="hint">Für ein Gerät, auf dem das Klassenbuch noch nicht eingerichtet ist. Du brauchst den Zugangsschlüssel und dein Klassenbuch-Passwort.</p>
+    <label>Repository (kann leer bleiben, wird dann automatisch gefunden)<input name="repo" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
     <label>Zugangsschlüssel (Token, beginnt mit github_pat_)<input type="text" name="token" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></label>
     <label>Klassenbuch-Passwort<input type="password" name="pw" autocomplete="current-password"></label>`, {
     saveLabel: 'Laden',
