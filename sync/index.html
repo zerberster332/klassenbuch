@@ -132,6 +132,13 @@ td.hot{color:var(--bad);font-weight:800}
 .namegrid button.ok{background:rgba(26,127,55,.3);border-color:var(--ok);font-weight:700}
 .namegrid button.ok::before{content:"✓ "}
 .bar{height:8px;border-radius:4px;background:var(--chip);overflow:hidden;margin-top:6px}.bar>i{display:block;height:100%;background:var(--ok)}
+.mbtn.vh{background:rgba(120,90,200,.2);color:#7a5bd0;font-size:14px}
+.kitbtn.on.abs{background:var(--bad);border-color:var(--bad);color:#fff}
+.kitbtn.on.late,.kitbtn.on.ha{background:var(--warn);border-color:var(--warn);color:#fff}
+.attrow .kitbtn{min-width:0;padding:0 6px}.attrow .mbtn.undo{flex:0 0 46px}
+.vhchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.vhchips .kitbtn{flex:1 1 auto;color:var(--fg)}
+.tag.mat-c{color:#7a5bd0;border-color:#7a5bd0}
+.vhchips .kitbtn.on{background:rgba(120,90,200,.25);border-color:#7a5bd0}
 .fab{position:fixed;right:14px;bottom:calc(76px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;border:0;background:var(--pri);color:var(--pri-fg);font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.35);z-index:6;cursor:pointer}
 </style>
 </head>
@@ -293,12 +300,14 @@ function stats(c, sid) {
   const cs = db.contribs.filter(x => x.studentId === sid);
   const at = db.attendance.filter(x => x.studentId === sid);
   const n = v => cs.filter(x => x.val === v).length, a = k => at.filter(x => x.status === k).length;
-  return { big, small, total, n: gs.length, plus2: n('++'), plus: n('+'), minus: n('-'), minus2: n('--'), ha: n('HA'), mat: n('MAT'),
+  const vh = db.remarks.filter(r => r.studentId === sid && r.tag === 'Verhalten').length;
+  return { big, small, total, n: gs.length, plus2: n('++'), plus: n('+'), minus: n('-'), minus2: n('--'), ha: n('HA'), mat: n('MAT'), vh,
     aktiv: a('aktiv'), passiv: a('passiv'), fehlt: a('fehlt'), befreit: a('befreit'), verspaetet: a('verspaetet'), vergessen: at.filter(x => x.kit === 'vergessen').length };
 }
 const attChips = st => [st.passiv ? `<span class="hw">passiv ${st.passiv}</span>` : '', st.fehlt ? `<span class="mi">fehlt ${st.fehlt}</span>` : '', st.vergessen ? `<span class="mi">👕✗ ${st.vergessen}</span>` : '', st.befreit ? `<span class="sub">befreit ${st.befreit}</span>` : ''].filter(Boolean).join(' &nbsp;');
-/* Beiträge: ++ sehr gut, + gut, − schwach, −− sehr schwach/Störung, HA = Hausaufgabe fehlt */
-const UB_VALS = ['++', '+', '-', '--', 'HA'];
+/* Beiträge: ++ sehr gut, + gut, − schwach, −− sehr schwach. HA (Hausaufgabe fehlt) wird im Tab „Schüler“ als Umschalter
+   für heute eingetragen; alte HA- und MAT-Einträge werden weiter angezeigt (UB_LABEL/UB_CLASS). */
+const UB_VALS = ['++', '+', '-', '--'];
 const UB_LABEL = { '++': '++', '+': '+', '-': '−', '--': '−−', HA: 'HA', MAT: 'Mat' };
 const UB_CLASS = { '++': 'plus strong', '+': 'plus', '-': 'minus', '--': 'minus strong', HA: 'ha', MAT: 'mat' };
 const UB_ARIA = { '++': 'Sehr guter Beitrag', '+': 'Guter Beitrag', '-': 'Schwacher Beitrag', '--': 'Sehr schwacher Beitrag', HA: 'Hausaufgabe fehlt', MAT: 'Material fehlt' };
@@ -470,14 +479,20 @@ function tabStudents(c) {
   const sts = sortStudents(c.students);
   const sport = c.type === 'sport', last = sport ? '' : lastLesson(c, today());
   const rows = sts.map(s => {
-    const chips = sport ? attChips(stats(c, s.id)) : contribChips(db.contribs.filter(x => x.studentId === s.id));
     const away = isAway(s);
-    return `<div class="item mrow ${away ? 'away' : ''}"><div class="grow tap" onclick="location.hash='#/s/${c.id}/${s.id}'"><div class="ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><div class="sub">${awayBadge(s) + (sport ? exemptBadge(s) : absBadges(s, today(), last))} ${chips || (away || isExempt(s) ? '' : '–')}</div></div>
-      ${sport || away ? '<span class="chev">›</span>' : ubButtons(['++', '+', '-', '--'], v => `A.contribToday('${c.id}','${s.id}','${v}')`) + `<button class="mbtn undo" onclick="A.ub('${c.id}','${s.id}')" aria-label="Beiträge bearbeiten">✎</button>`}</div>`; }).join('');
+    if (!sport) {
+      const info = `<div class="ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><div class="sub">${awayBadge(s) + absBadges(s, today(), last)} ${attSummary(stats(c, s.id)) || (away ? '' : '–')}</div>`;
+      if (away) return `<div class="item mrow away"><div class="grow tap" onclick="location.hash='#/s/${c.id}/${s.id}'">${info}</div><span class="chev">›</span></div>`;
+      return `<div class="item wrapitem"><div class="nm tap row" onclick="location.hash='#/s/${c.id}/${s.id}'"><div class="grow">${info}</div><span class="chev">›</span></div>
+      <div class="ubrow attrow">${attButtons(c, s)}</div></div>`;
+    }
+    const chips = attChips(stats(c, s.id));
+    return `<div class="item mrow ${away ? 'away' : ''}"><div class="grow tap" onclick="location.hash='#/s/${c.id}/${s.id}'"><div class="ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><div class="sub">${awayBadge(s) + exemptBadge(s)} ${chips || (away || isExempt(s) ? '' : '–')}</div></div>
+      <span class="chev">›</span></div>`; }).join('');
   const nAway = sts.length - activeCount(c);
   return `${sts.length ? `<div class="card"><b>${activeCount(c)} Schüler</b>${nAway ? ` <span class="sub">· ${nAway} länger abwesend (nicht mitgezählt)</span>` : ''}</div>
     <div class="list">${rows}</div>
-    <p class="hint">${sport ? '' : '++ / + / − / −− tragen einen Beitrag für heute ein. ✎ zeigt alle Einträge zum Ändern und Löschen. '}Noten siehst du nur im Tab „Noten“. Längere Abwesenheit${sport ? ' und Sportbefreiung' : ''} stellst du beim Schüler über ✎ oben rechts ein.</p>` :`<div class="card empty">Noch keine Schüler. Füge sie einzeln hinzu oder importiere eine Klassenliste (PDF oder Text).</div>`}
+    <p class="hint">${sport ? '' : '„zu spät“, „fehlt“ und „HA“ (Hausaufgabe fehlt) gelten für heute; noch einmal tippen nimmt den Eintrag zurück. ✎ für krank, eine Notiz oder einen anderen Tag. Beiträge (++ bis −−) trägst du über ✋ oder im Tab „Mitarbeit“ ein, Verhalten (VH) im Tab „Mitarbeit“. Name antippen öffnet die Schülerseite. '}Noten siehst du nur im Tab „Noten“. Längere Abwesenheit${sport ? ' und Sportbefreiung' : ''} stellst du beim Schüler über ✎ oben rechts ein.</p>` :`<div class="card empty">Noch keine Schüler. Füge sie einzeln hinzu oder importiere eine Klassenliste (PDF oder Text).</div>`}
     <div class="btns"><button class="btn pri" onclick="A.addStudent('${c.id}')">+ Schüler</button><button class="btn" onclick="A.importStudents('${c.id}')">📄 Liste importieren</button></div>`;
 }
 A.addStudent = cid => {
@@ -621,14 +636,14 @@ function strichliste(c) {
   const sport = c.type === 'sport';
   const cols = sport
     ? [['passiv', 'passiv', a => a.status === 'passiv'], ['fehlt', 'fehlt', a => a.status === 'fehlt'], ['verg', 'Sportzeug vergessen', a => a.kit === 'vergessen'], ['befreit', 'befreit', a => a.status === 'befreit']]
-    : [['fehlt', 'fehlt', x => x.status === 'fehlt'], ['spaet', 'zu spät', x => x.status === 'verspaetet'], ['HA', 'HA fehlt', x => x.val === 'HA'], ['++', '++', x => x.val === '++'], ['+', '+', x => x.val === '+'], ['-', '−', x => x.val === '-'], ['--', '−−', x => x.val === '--']];
-  const src = (sport ? db.attendance : db.contribs.concat(db.attendance)).filter(x => x.classId === c.id && x.date >= since);
+    : [['fehlt', 'fehlt', x => x.status === 'fehlt'], ['spaet', 'spät', x => x.status === 'verspaetet'], ['HA', 'HA', x => x.val === 'HA'], ['VH', 'VH', x => x.tag === 'Verhalten'], ['++', '++', x => x.val === '++'], ['+', '+', x => x.val === '+'], ['-', '−', x => x.val === '-'], ['--', '−−', x => x.val === '--']];
+  const src = (sport ? db.attendance : db.contribs.concat(db.attendance, db.remarks)).filter(x => x.classId === c.id && x.date >= since);
   const hotCols = sport ? ['passiv', 'fehlt', 'verg'] : ['fehlt', 'spaet', 'HA'];
   const rows = sts.map(s => { const mine = src.filter(x => x.studentId === s.id);
     return `<tr class="tap ${isAway(s) ? 'away' : ''}" onclick="location.hash='#/s/${c.id}/${s.id}/verlauf'"><td>${h(s.last)}, ${h(s.first.split(' ')[0])}</td>${cols.map(([k, , fn]) => { const n = mine.filter(fn).length; return `<td class="${hotCols.includes(k) && n >= 3 ? 'hot' : ''}">${n ? (n <= 6 && hotCols.includes(k) ? '|'.repeat(n) : n) : '·'}</td>`; }).join('')}</tr>`; }).join('');
   const lessons = sport ? new Set(src.map(a => a.date)).size : null;
   return `<div class="card"><label style="margin:0">Zählen ab<input type="date" value="${since}" onchange="A.setSince(this.value)"></label>
-    <p class="hint" style="margin-bottom:0">${sport ? `${lessons} erfasste Sportstunden seit ${fmtDate(since)}. ` : ''}Ab 3 Strichen rot markiert. Tippe auf einen Namen für Details.</p></div>
+    <p class="hint" style="margin-bottom:0">${sport ? `${lessons} erfasste Sportstunden seit ${fmtDate(since)}. ` : 'spät = zu spät · HA = Hausaufgabe fehlt · VH = Einträge zum Verhalten. '}Ab 3 Strichen rot markiert. Tippe auf einen Namen für Details.</p></div>
     <div class="card" style="padding:4px 10px"><table class="ov"><tr><th>Name</th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>${rows}</table></div>`;
 }
 function sportDay(c) {
@@ -704,23 +719,65 @@ A.absent = (cid, sid) => {
   r.status = r.status === 'fehlt' ? null : 'fehlt'; delete r.reason;
   attCleanup(); persist(); render();
 };
-// Tipp auf den Namen: da / krank / fehlt / verspätet und eine Notiz für diesen Tag.
-A.absSheet = (cid, sid) => {
-  const d = ui.mDate || today(), s = getClass(cid).students.find(x => x.id === sid), r = attOf(sid, d);
+// ✎ bei der Anwesenheit: da / krank / fehlt / verspätet und eine Notiz, für heute oder einen anderen Tag.
+A.absSheet = (cid, sid, d) => {
+  d = d || ui.mDate || today();
+  const s = getClass(cid).students.find(x => x.id === sid), r = attOf(sid, d);
   const cur = !r || !r.status ? '' : r.status === 'fehlt' ? (r.reason === 'krank' ? 'krank' : 'fehlt') : r.status;
-  openModal(`${s.first} ${s.last} · ${fmtDate(d)}`, `<div class="seg full-seg">${[['', 'da'], ['krank', 'krank'], ['fehlt', 'fehlt'], ['verspaetet', 'verspätet']].map(([k, l]) => `<button type="button" class="${cur === k ? 'on' : ''}" onclick="A.absSet('${cid}','${sid}','${k}')">${l}</button>`).join('')}</div>
+  openModal(`${s.first} ${s.last} · ${fmtDate(d)}`, `<label>Datum<input type="date" name="adate" value="${d}" onchange="A.absSheet('${cid}','${sid}',this.value)"></label>
+    <div class="seg full-seg">${[['', 'da'], ['krank', 'krank'], ['fehlt', 'fehlt'], ['verspaetet', 'verspätet']].map(([k, l]) => `<button type="button" class="${cur === k ? 'on' : ''}" onclick="A.absSet('${cid}','${sid}','${k}')">${l}</button>`).join('')}</div>
     <label>Notiz für diesen Tag (optional)<input name="note" value="${h(r ? r.note || '' : '')}" placeholder="z. B. 10 Minuten zu spät, Arzttermin"></label>
     <p class="hint">Ein Tipp auf „da“, „krank“, „fehlt“ oder „verspätet“ speichert sofort, samt Notiz.</p>`, {
     saveLabel: 'Nur Notiz speichern',
-    onSave: f => { const x = attRec(cid, sid, d); x.note = f.note.value.trim(); attCleanup(); persist(); }
+    onSave: f => { const x = attRec(cid, sid, f.adate.value || d); x.note = f.note.value.trim(); attCleanup(); persist(); }
   });
 };
 A.absSet = (cid, sid, k) => {
-  const r = attRec(cid, sid, ui.mDate || today());
-  r.note = document.getElementById('mForm').elements.note.value.trim();
+  const f = document.getElementById('mForm').elements;
+  const r = attRec(cid, sid, f.adate.value || ui.mDate || today());
+  r.note = f.note.value.trim();
   r.status = k === 'krank' ? 'fehlt' : k || null;
   if (k === 'krank') r.reason = 'krank'; else delete r.reason;
   attCleanup(); persist(); A.closeModal(); render();
+};
+/* Anwesenheit heute (Nicht-Sport): Umschalter „zu spät“, „fehlt“, „HA“ und ✎ – im Tab „Schüler“ und auf der Schülerseite */
+const haToday = sid => db.contribs.filter(x => x.studentId === sid && x.date === today() && x.val === 'HA');
+function attButtons(c, s) {
+  const r = attOf(s.id, today()), late = !!(r && r.status === 'verspaetet'), abs = !!(r && r.status === 'fehlt'), ha = haToday(s.id).length > 0;
+  const b = (on, cls, call, label, aria) => `<button type="button" class="kitbtn ${cls} ${on ? 'on' : ''}" onclick="${call}" aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
+  return b(late, 'late', `A.attToggle('${c.id}','${s.id}','verspaetet')`, 'zu spät', 'Heute zu spät') +
+    b(abs, 'abs', `A.attToggle('${c.id}','${s.id}','fehlt')`, 'fehlt', 'Fehlt heute') +
+    b(ha, 'ha', `A.haToggle('${c.id}','${s.id}')`, 'HA', 'Hausaufgabe fehlt heute') +
+    `<button type="button" class="mbtn undo" onclick="A.absSheet('${c.id}','${s.id}','${today()}')" aria-label="Anwesenheit bearbeiten: krank, Notiz oder anderer Tag">✎</button>`;
+}
+const attSummary = st => [['gefehlt', st.fehlt, 'mi'], ['zu spät', st.verspaetet, 'hw'], ['HA', st.ha, 'hw']].filter(x => x[1]).map(([l, n, cls]) => `<span class="${cls}">${l} ${n}</span>`).join(' · ');
+A.attToggle = (cid, sid, k) => {
+  const r = attRec(cid, sid, today());
+  r.status = r.status === k ? null : k; delete r.reason;
+  attCleanup(); persist(); render();
+};
+A.haToggle = (cid, sid) => {
+  const ex = haToday(sid);
+  if (ex.length) db.contribs = db.contribs.filter(x => !ex.includes(x));
+  else db.contribs.push({ id: uid(), classId: cid, studentId: sid, date: today(), val: 'HA', ts: Date.now() });
+  persist(); render();
+};
+/* VH = Verhalten dokumentieren: wird als Bemerkung mit Kategorie „Verhalten“ gespeichert */
+const VH_PRESETS = ['Stört den Unterricht', 'Schwätzt', 'Handy', 'Arbeitsverweigerung', 'Respektlos', 'Material nicht dabei', 'Positiv: hilfsbereit', 'Positiv: besonders engagiert'];
+const vhCount = (sid, d) => db.remarks.filter(r => r.studentId === sid && r.tag === 'Verhalten' && (!d || r.date === d)).length;
+A.vh = (cid, sid, d) => {
+  d = d || ui.mDate || today();
+  const s = getClass(cid).students.find(x => x.id === sid);
+  openModal(`Verhalten · ${s.first} ${s.last} · ${fmtDate(d)}`, `<div class="vhchips">${VH_PRESETS.map(p => `<button type="button" class="kitbtn" onclick="A.vhPick(this)">${h(p)}</button>`).join('')}</div>
+    <label>Details (optional)<textarea name="text" rows="4" placeholder="Was ist passiert?"></textarea></label>
+    <p class="hint">Antippen fügt den Text ein. Gespeichert wird eine Bemerkung „Verhalten“ – auf der Schülerseite unter „Bemerkungen“ änderbar und löschbar. Ohne Text wird „Fehlverhalten“ eingetragen.</p>`, {
+    onSave: f => { db.remarks.push({ id: uid(), classId: cid, studentId: sid, date: d, tag: 'Verhalten', text: f.text.value.trim() || 'Fehlverhalten', ts: Date.now() }); persist(); toast('Verhalten eingetragen.'); }
+  });
+};
+A.vhPick = btn => {
+  const ta = document.querySelector('#mBody textarea[name=text]'), t = btn.textContent, cur = ta.value.trim();
+  ta.value = cur ? cur.replace(/[.,;]\s*$/, '') + ', ' + t : t;
+  btn.classList.add('on');
 };
 function contribDay(c) {
   const d = ui.mDate || today();
@@ -728,13 +785,12 @@ function contribDay(c) {
   const rows = sts.map(s => {
     const list = db.contribs.filter(x => x.studentId === s.id && x.date === d);
     if (isAway(s, d)) return `<div class="item away"><div class="grow"><b>${h(s.last)}</b>, ${h(s.first)}${awayBadge(s, d)}</div></div>`;
-    const abs = isAbsent(s.id, d);
-    const note = (attOf(s.id, d) || {}).note;
-    return `<div class="item wrapitem"><div class="nm tap" onclick="A.absSheet('${c.id}','${s.id}')"><b>${h(s.last)}</b>, ${h(s.first)}${absBadges(s, d, last)}${note ? ` <span class="sub">· ${h(note)}</span>` : ''} &nbsp;<span class="sub">${contribChips(list)}</span></div>
-      <div class="ubrow"><button type="button" class="mbtn abs ${abs ? 'on' : ''}" onclick="A.absent('${c.id}','${s.id}')" aria-label="Fehlt in dieser Stunde" aria-pressed="${abs}">fehlt</button>${ubButtons(UB_VALS, v => `A.contrib('${c.id}','${s.id}','${v}')`)}<button class="mbtn undo" onclick="A.ub('${c.id}','${s.id}')" aria-label="Beiträge bearbeiten">✎</button></div></div>`;
+    const note = (attOf(s.id, d) || {}).note, vhN = vhCount(s.id, d);
+    return `<div class="item wrapitem"><div class="nm"><b>${h(s.last)}</b>, ${h(s.first)}${absBadges(s, d, last)}${note ? ` <span class="sub">· ${h(note)}</span>` : ''}${vhN ? ` <span class="chip mat-c">VH ${vhN}</span>` : ''} &nbsp;<span class="sub">${contribChips(list)}</span></div>
+      <div class="ubrow">${ubButtons(UB_VALS, v => `A.contrib('${c.id}','${s.id}','${v}')`)}<button type="button" class="mbtn vh" onclick="A.vh('${c.id}','${s.id}')" aria-label="Verhalten dokumentieren">VH</button><button class="mbtn undo" onclick="A.ub('${c.id}','${s.id}')" aria-label="Beiträge bearbeiten">✎</button></div></div>`;
   }).join('');
   return `<div class="card"><label style="margin:0">Datum<input type="date" value="${d}" onchange="A.setMDate(this.value)"></label>
-    <p class="hint" style="margin-bottom:0">Name antippen: krank, fehlt, verspätet oder Notiz · Knopf „fehlt“ = schnell als nicht da eintragen (noch einmal tippen nimmt es zurück) · ++ sehr gut · + gut · − schwach · −− sehr schwach · HA Hausaufgabe fehlt · ✎ Einträge ändern oder löschen${last ? `<br>Letzte erfasste Stunde: ${wdShort(last)} ${fmtDate(last)}. Wer da gefehlt hat, ist rot markiert.` : ''}</p></div>
+    <p class="hint" style="margin-bottom:0">++ sehr gut · + gut · − schwach · −− sehr schwach · VH Verhalten dokumentieren (wird als Bemerkung beim Schüler gespeichert) · ✎ Beiträge ändern oder löschen. Anwesenheit und HA trägst du im Tab „Schüler“ ein.${last ? `<br>Letzte erfasste Stunde: ${wdShort(last)} ${fmtDate(last)}. Wer da gefehlt hat, ist rot markiert.` : ''}</p></div>
     ${sts.length ? `<div class="list">${rows}</div>` : '<div class="card empty">Noch keine Schüler in dieser Klasse.</div>'}`;
 }
 A.setMDate = v => { ui.mDate = v || null; render(); };
@@ -967,7 +1023,7 @@ A.deleteClass = cid => {
 
 /* ---------- Schülerseite ---------- */
 /* Verlauf eines Schülers: alle Tage mit Auffälligkeiten (gefehlt, passiv, befreit, Sportzeug/HA vergessen), neueste zuerst. */
-function studentLog(s) {
+function studentLog(s, withVh) {
   const map = {};
   const add = (d, tag, note) => { const e = (map[d] ||= { tags: [], notes: [] }); if (tag) e.tags.push(tag); if (note) e.notes.push(note); };
   for (const a of db.attendance.filter(a => a.studentId === s.id)) {
@@ -985,13 +1041,15 @@ function studentLog(s) {
     const n = {}; cs.filter(x => x.val === val).forEach(x => { n[x.date] = (n[x.date] || 0) + 1; });
     for (const d in n) add(d, `<span class="${cls}">${label}${n[d] > 1 ? ' ×' + n[d] : ''}</span>`);
   }
+  // Verhaltens-Bemerkungen (nur Nicht-Sport): Tag „VH“, Text als Unterzeile
+  if (withVh) for (const r of db.remarks.filter(r => r.studentId === s.id && r.tag === 'Verhalten').sort((a, b) => (a.ts || 0) - (b.ts || 0))) add(r.date, '<span class="tag mat-c">VH</span>', 'VH: ' + r.text);
   return Object.keys(map).sort().reverse().map(d => ({ date: d, ...map[d] }));
 }
 function studentLogHtml(c, s, st) {
-  const log = studentLog(s), sport = c.type === 'sport';
+  const sport = c.type === 'sport', log = studentLog(s, !sport);
   const sum = (sport
     ? [['gefehlt', st.fehlt, 'mi'], ['passiv', st.passiv, 'hw'], ['Sportzeug vergessen', st.vergessen, 'mi'], ['befreit', st.befreit, 'sub']]
-    : [['gefehlt', st.fehlt, 'mi'], ['verspätet', st.verspaetet, 'hw'], ['++', st.plus2, 'pl'], ['+', st.plus, 'pl'], ['−', st.minus, 'mi'], ['−−', st.minus2, 'mi'], ['HA fehlt', st.ha, 'hw']].concat(st.mat ? [['Material', st.mat, 'mat-c']] : []))
+    : [['gefehlt', st.fehlt, 'mi'], ['verspätet', st.verspaetet, 'hw'], ['++', st.plus2, 'pl'], ['+', st.plus, 'pl'], ['−', st.minus, 'mi'], ['−−', st.minus2, 'mi'], ['HA fehlt', st.ha, 'hw'], ['Verhalten', st.vh, 'mat-c']].concat(st.mat ? [['Material', st.mat, 'mat-c']] : []))
     .map(([l, n, cls]) => `<div><div class="v ${n ? cls : ''}">${n}</div><div class="l">${l}</div></div>`).join('');
   const wd = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short' });
   const month = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
@@ -1005,8 +1063,8 @@ function studentLogHtml(c, s, st) {
   return `<div class="card"><div class="sub">Insgesamt</div><div class="stats" style="grid-template-columns:${sport ? 'repeat(4,1fr)' : 'repeat(auto-fit,minmax(70px,1fr));row-gap:12px'}">${sum}</div></div>
     ${s.away ? `<div class="card"><b>${h(s.away.label || 'Länger abwesend')}</b><div class="sub">${period(s.away)}</div></div>` : ''}
     ${sport && s.exempt ? `<div class="card"><b>🩹 Sportbefreiung</b><div class="sub">${period(s.exempt)}${s.exempt.note ? ' · ' + h(s.exempt.note) : ''}</div></div>` : ''}
-    ${log.length ? rows + '</div>' : `<div class="card empty">Keine Einträge: nie gefehlt${sport ? ', nie passiv, nichts vergessen' : ', keine Beiträge, keine Hausaufgabe vergessen'}.</div>`}
-    <p class="hint">${sport ? 'Gezeigt werden alle Stunden, in denen etwas auffällig war. Stunden mit „aktiv“ und Sportzeug dabei stehen nicht in der Liste.' : 'Gezeigt wird jeder Tag mit einem Eintrag: gefehlt, Beiträge (++ bis −−) und vergessene Hausaufgaben, jeweils mit Datum.'}</p>`;
+    ${log.length ? rows + '</div>' : `<div class="card empty">Keine Einträge: nie gefehlt${sport ? ', nie passiv, nichts vergessen' : ', keine Beiträge, keine Hausaufgabe vergessen, kein Verhaltens-Eintrag'}.</div>`}
+    <p class="hint">${sport ? 'Gezeigt werden alle Stunden, in denen etwas auffällig war. Stunden mit „aktiv“ und Sportzeug dabei stehen nicht in der Liste.' : 'Gezeigt wird jeder Tag mit einem Eintrag: gefehlt, zu spät, Beiträge (++ bis −−), vergessene Hausaufgaben und Verhalten (VH, mit Text), jeweils mit Datum. Verhaltens-Einträge änderst du in der Übersicht unter „Bemerkungen“.'}</p>`;
 }
 function renderStudent(c, sid, view) {
   const noten = view === 'noten', verlauf = view === 'verlauf', sfx = noten ? '/noten' : verlauf ? '/verlauf' : '';
@@ -1036,8 +1094,10 @@ function renderStudent(c, sid, view) {
     ${isAway(s) || (c.type === 'sport' && isExempt(s)) ? `<div class="card row"><div class="grow">${awayBadge(s)}${c.type === 'sport' ? exemptBadge(s) : ''}${c.type === 'sport' && isExempt(s) && s.exempt.note ? ` <span class="sub">${h(s.exempt.note)}</span>` : ''}</div><button class="btn sm" onclick="A.editStudent('${c.id}','${sid}')">Ändern</button></div>` : ''}
     ${c.type === 'sport'
       ? `<div class="card"><div class="sub">Sportstunden</div><div><span class="pl">aktiv ${st.aktiv}</span> &nbsp;<span class="hw">passiv ${st.passiv}</span> &nbsp;<span class="mi">fehlt ${st.fehlt}</span> &nbsp;<span class="mi">👕 vergessen ${st.vergessen}</span>${st.befreit ? ` &nbsp;<span class="sub">befreit ${st.befreit}</span>` : ''}</div></div>`
-      : `<div class="card"><div class="sub">Beiträge gesamt</div><div>${contribChips(cs) || '–'}</div><div class="sub">heute: ${contribChips(td) || '–'}</div>
-    <div class="ubrow mt">${ubButtons(UB_VALS, v => `A.contribToday('${c.id}','${sid}','${v}')`)}<button class="mbtn undo" onclick="A.ub('${c.id}','${sid}')" aria-label="Beiträge ändern">✎</button></div></div>`}
+      : `<div class="card"><div class="sub">Beiträge gesamt</div><div>${contribChips(cs) || '–'}${st.vh ? ` &nbsp;<span class="mat-c">VH ${st.vh}</span>` : ''}</div><div class="sub">heute: ${contribChips(td) || '–'}${vhCount(sid, today()) ? ` &nbsp;<span class="mat-c">VH ${vhCount(sid, today())}</span>` : ''}</div>
+    <div class="ubrow mt">${ubButtons(UB_VALS, v => `A.contribToday('${c.id}','${sid}','${v}')`)}<button type="button" class="mbtn vh" onclick="A.vh('${c.id}','${sid}','${today()}')" aria-label="Verhalten dokumentieren">VH</button><button class="mbtn undo" onclick="A.ub('${c.id}','${sid}')" aria-label="Beiträge ändern">✎</button></div></div>
+    <div class="card"><div class="sub">Anwesenheit heute${absBadges(s, today(), lastLesson(c, today()))}</div><div class="sub">insgesamt: ${attSummary(st) || '–'}</div>
+    <div class="ubrow attrow mt">${attButtons(c, s)}</div></div>`}
 
     <div class="sec">Bemerkungen</div>
     <form class="card" onsubmit="A.addRemark(event,'${c.id}','${sid}')"><div class="row"><select name="tag" style="margin:0">${TAGS.map(t => `<option>${t}</option>`).join('')}</select><input type="date" name="date" value="${today()}" style="margin:0"></div>
