@@ -141,7 +141,8 @@ details summary{cursor:pointer;color:var(--muted);padding:8px 4px;font-weight:60
 .full-seg{display:flex;width:100%;margin-bottom:12px}.full-seg button{flex:1;height:42px;font-size:15px}
 .wrapitem{flex-wrap:wrap;row-gap:6px}.nm{flex-basis:100%;min-width:0;overflow-wrap:anywhere}
 .kitbtn{height:44px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:0 10px;flex:1;cursor:pointer}
-.kitbtn.slim{flex:0 0 auto;min-width:62px;padding:0 8px;font-size:15px}
+.seg.tight button{padding:0 6px}
+.kitbtn.slim,.mbtn.vh.slim{flex:1 1 0;min-width:50px;padding:0 8px;font-size:15px;height:44px}
 .kitbtn.dabei{color:var(--ok);background:rgba(26,127,55,.15)}
 .kitbtn.vergessen{color:var(--bad);background:rgba(210,40,40,.15)}
 td.hot{color:var(--bad);font-weight:800}
@@ -805,9 +806,9 @@ function sportDay(c) {
   const rows = sts.map(s => { const r = recs.get(s.id), ex = isExempt(s, d);
     if (isAway(s, d)) return `<div class="item away"><div class="grow"><b>${h(s.last)}</b>, ${h(s.first)}${awayBadge(s, d)}</div></div>`;
     return `<div class="item wrapitem"><div class="nm tap" onclick="A.attNote('${c.id}','${s.id}')"><b>${h(s.last)}</b>, ${h(s.first)}${exemptBadge(s, d)}${r && r.note ? ` <span class="sub">· ${h(r.note)}</span>` : ' <span class="sub">✎</span>'}${vhCount(s.id, d) ? ` <span class="chip mat-c">VH ${vhCount(s.id, d)}</span>` : ''}</div>
-      <div class="seg">${['aktiv', 'passiv', 'fehlt'].concat(ex || (r && r.status === 'befreit') ? ['befreit'] : []).map(k => `<button class="${r && r.status === k ? 'on ' + k : ''}" onclick="A.att('${c.id}','${s.id}','status','${k}')">${k}</button>`).join('')}</div>
+      <div class="seg ${ex || (r && r.status === 'befreit') ? 'tight' : ''}">${['aktiv', 'passiv', 'fehlt'].concat(ex || (r && r.status === 'befreit') ? ['befreit'] : []).map(k => `<button class="${r && r.status === k ? 'on ' + k : ''}" onclick="A.att('${c.id}','${s.id}','status','${k}')">${k}</button>`).join('')}</div>
       <button class="kitbtn slim ${r && r.kit || ''}" onclick="A.att('${c.id}','${s.id}','kit')" aria-label="Sportzeug: ${r && r.kit === 'vergessen' ? 'vergessen' : r && r.kit === 'dabei' ? 'dabei' : 'noch nicht eingetragen'}">${r && r.kit === 'vergessen' ? '👕 ✗' : r && r.kit === 'dabei' ? '👕 ✓' : '👕 ?'}</button>
-      <button type="button" class="mbtn vh" style="height:44px" onclick="A.vh('${c.id}','${s.id}')" aria-label="Verhalten dokumentieren">VH</button></div>`; }).join('');
+      <button type="button" class="mbtn vh slim" onclick="A.vh('${c.id}','${s.id}')" aria-label="Verhalten dokumentieren">VH</button></div>`; }).join('');
   return `${dateBar()}<div class="card">
     <button class="btn pri block mt" onclick="A.attAll('${c.id}')">Alle übrigen: aktiv + Sportzeug dabei</button>
     <p class="hint" style="margin-bottom:0"><span class="pl">aktiv ${cnt('aktiv')}</span> · <span class="pv">passiv ${cnt('passiv')}</span> ·<span class="mi">fehlt ${cnt('fehlt')}</span>${cnt('befreit') ? ` · befreit ${cnt('befreit')}` : ''} · 👕 vergessen ${verg}${offen ? ` · <b>${offen} noch offen</b>` : ''}<br>Tipp: Erst „Alle übrigen“ tippen, dann nur die Ausnahmen ändern. Schüler mit Sportbefreiung werden dabei als „befreit“ eingetragen. „Sportzeug vergessen“ setzt automatisch auf passiv. 👕 ✓ = Sportzeug dabei, 👕 ✗ = vergessen. VH = Verhalten dokumentieren (fair, unfair, stört …). Name antippen für eine Notiz.</p></div>
