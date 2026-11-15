@@ -147,6 +147,23 @@ td.hot{color:var(--bad);font-weight:800}
 .item.mrow{gap:5px;padding-right:8px}
 .xscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .xscroll table.ov td:first-child,.xscroll table.ov th:first-child{position:sticky;left:0;background:var(--card);white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;padding-right:8px}
+.datebar .btn{min-width:52px;font-size:18px}
+.datebar.other{border-color:var(--late);background:color-mix(in srgb,var(--late) 10%,var(--card))}
+table.mx td,table.mx th{min-width:40px}
+table.mx td{font-weight:700;font-size:13px;cursor:pointer}
+table.mx th small{display:block;font-weight:400}
+#print{display:none}
+@media print{
+  body>*:not(#print){display:none!important}
+  html,body{background:#fff!important}
+  #print{display:block;color:#000;font-size:11pt;--ok:#1a7f37;--bad:#c62828;--late:#b8470a;--ha:#1d4fbf;--sick:#9c2a6c;--vh:#5a3fb0;--amber:#7a4a00;--teal:#0f766e;--muted:#444}
+  #print h1{font-size:18pt;margin:0}#print h2{font-size:13pt;margin:14pt 0 4pt;border-bottom:1px solid #999}
+  #print .psub{margin:2pt 0 8pt;color:#444}#print p{margin:4pt 0}
+  #print table{border-collapse:collapse;width:100%;font-size:10pt}
+  #print th,#print td{border:1px solid #bbb;padding:3pt 5pt;text-align:left;vertical-align:top;position:static!important;max-width:none!important;background:none!important}
+  #print th{background:#eee!important}#print tr{break-inside:avoid}
+  #print .tag{border:0;background:none;padding:0;font-size:inherit}
+}
 .dlg{max-width:420px;width:calc(100% - 32px);border-radius:16px!important;padding:16px 16px 4px}
 .dlg p{margin:0 0 12px;white-space:pre-wrap}
 .dlg .sheet-foot{border:0;padding:8px 0 12px}
@@ -185,6 +202,7 @@ td.hot{color:var(--bad);font-weight:800}
   <form class="sheet dlg" role="alertdialog" aria-modal="true" id="dlgForm" novalidate><div id="dlgBody"></div><div class="sheet-foot" id="dlgFoot"></div></form>
 </div>
 <div id="toast" role="status"></div>
+<div id="print"></div>
 <script>/**
  * @licstart The following is the entire license notice for the
  * JavaScript code in this page
@@ -501,16 +519,34 @@ window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); }
 /* ---------- Startseite ---------- */
 function renderHome() {
   const active = db.classes.filter(c => !c.archived), arch = db.classes.filter(c => c.archived);
+  const t0 = today();
   const card = c => { const open = c.todos.filter(t => !t.done).length;
-    return `<div class="item tap" onclick="location.hash='#/c/${c.id}'"><div class="avatar">${h(c.name.slice(0, 4))}</div><span aria-hidden="true">${c.type === 'sport' ? '🏃' : '📖'}</span><div class="grow"><div class="ell"><b>${h(c.name)}</b>${c.subject ? ` <span class="sub">· ${h(c.subject)}</span>` : ''}</div><div class="sub">${activeCount(c)} Schüler · ${open ? `<b>${open} offene To-dos</b>` : 'keine offenen To-dos'}</div></div><span class="chev">›</span></div>`; };
+    // Zeile „Heute“: schon etwas eingetragen? Wer fehlt, fällige To-dos, länger Abwesende.
+    const att = db.attendance.filter(a => a.classId === c.id && a.date === t0);
+    const done = att.length || db.contribs.some(x => x.classId === c.id && x.date === t0);
+    const abs = att.filter(a => a.status === 'fehlt').length, late = att.filter(a => a.status === 'verspaetet').length;
+    const due = c.todos.filter(t => !t.done && t.due && t.due <= t0).length, away = c.students.length - activeCount(c);
+    const now = c.archived ? '' : [done ? '<span class="pl">✓ heute erfasst</span>' : '', abs ? `<span class="mi">${abs} ${abs === 1 ? 'fehlt' : 'fehlen'} heute</span>` : '', late ? `<span class="lt">${late} zu spät</span>` : '', due ? `<span class="lt">${due} To-do${due === 1 ? '' : 's'} fällig</span>` : '', away ? `${away} länger abwesend` : ''].filter(Boolean).join(' · ');
+    return `<div class="item tap" onclick="location.hash='#/c/${c.id}'"><div class="avatar">${h(c.name.slice(0, 4))}</div><span aria-hidden="true">${c.type === 'sport' ? '🏃' : '📖'}</span><div class="grow"><div class="ell"><b>${h(c.name)}</b>${c.subject ? ` <span class="sub">· ${h(c.subject)}</span>` : ''}</div><div class="sub">${activeCount(c)} Schüler · ${open ? `<b>${open} offene To-dos</b>` : 'keine offenen To-dos'}</div>${now ? `<div class="sub">${now}</div>` : ''}</div><span class="chev">›</span></div>`; };
+  const search = db.classes.some(c => c.students.length) ? `<input type="search" id="q" placeholder="🔍 Schüler suchen …" autocomplete="off" oninput="A.search(this.value)" aria-label="Schüler suchen" style="margin:0 0 12px"><div id="qres"></div>` : '';
   const lb = db.settings.lastBackup;
   const days = lb ? Math.floor((Date.now() - new Date(lb).getTime()) / 864e5) : null;
   const hint = db.classes.length && (days == null || days > 14) ? `<div class="card warn" onclick="location.hash='#/einstellungen'" style="cursor:pointer">⚠︎ ${lb ? `Letzte Sicherung vor ${days} Tagen.` : 'Noch keine Sicherung erstellt.'} Tippe hier, um eine Sicherungsdatei zu exportieren.</div>` : '';
   app.innerHTML = header('Klassenbuch', null, [['⚙︎', "location.hash='#/einstellungen'", 'Einstellungen'], ['🔒', 'A.lock()', 'Sperren']]) +
-    `<main>${hint}${active.length ? `<div class="list">${active.map(card).join('')}</div>` : `<div class="card empty">Noch keine Klassen. Lege deine erste Klasse an.</div>`}
+    `<main>${hint}${search}${active.length ? `<div class="list">${active.map(card).join('')}</div>` : `<div class="card empty">Noch keine Klassen. Lege deine erste Klasse an.</div>`}
     <button class="btn pri block" onclick="A.editClass()">+ Klasse anlegen</button>
     ${arch.length ? `<details class="mt"><summary>Archiv (${arch.length})</summary><div class="list">${arch.map(card).join('')}</div></details>` : ''}</main>`;
 }
+// Schülersuche über alle Klassen: füllt nur die Trefferliste, damit das Suchfeld den Fokus behält.
+A.search = q => {
+  const el = document.getElementById('qres'); if (!el) return;
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) { el.innerHTML = ''; return; }
+  const hits = [];
+  for (const c of db.classes) for (const s of c.students) { const n = (s.first + ' ' + s.last).toLowerCase(); if (words.every(w => n.includes(w))) hits.push([c, s]); }
+  hits.sort((a, b) => (a[0].archived ? 1 : 0) - (b[0].archived ? 1 : 0) || (a[1].last + a[1].first).localeCompare(b[1].last + b[1].first, 'de'));
+  el.innerHTML = hits.length ? `<div class="list">${hits.slice(0, 30).map(([c, s]) => `<div class="item tap" style="min-height:48px" onclick="location.hash='#/s/${c.id}/${s.id}'"><div class="grow ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><span class="tag">${h(c.name)}${c.subject ? ' · ' + h(c.subject) : ''}${c.archived ? ' · Archiv' : ''}</span><span class="chev">›</span></div>`).join('')}</div>${hits.length > 30 ? '<p class="hint">Weitere Treffer – bitte genauer suchen.</p>' : ''}` : '<div class="card empty">Kein Schüler gefunden.</div>';
+};
 A.editClass = id => {
   const c = id ? getClass(id) : { name: '', subject: 'Englisch', type: 'standard', year: schoolYear(), wBig: 2, wSmall: 1 };
   openModal(id ? 'Klasse bearbeiten' : 'Neue Klasse', `<div class="grid2">
@@ -546,6 +582,7 @@ function tabsFor(c) { return [['schueler', '👥', 'Schüler'], c.type === 'spor
 function renderClass(c, tab) {
   TABS = tabsFor(c);
   if (!TABS.some(t => t[0] === tab)) tab = 'schueler';
+  if (ui.tab && ui.tab.cid !== c.id) ui.mDate = null; // andere Klasse: wieder mit heute beginnen
   ui.tab = { cid: c.id, tab }; // für den Zurück-Knopf der Schülerseite
   const body = { schueler: tabStudents, mitarbeit: tabContrib, noten: tabGrades, todos: tabTodos, mehr: tabMore }[tab](c);
   const open = c.todos.filter(t => !t.done).length;
@@ -555,22 +592,22 @@ function renderClass(c, tab) {
 }
 function tabStudents(c) {
   const sts = sortStudents(c.students);
-  const sport = c.type === 'sport', last = sport ? '' : lastLesson(c, today());
+  const sport = c.type === 'sport', d = sport ? today() : ui.mDate || today(), last = sport ? '' : lastLesson(c, d);
   const rows = sts.map(s => {
-    const away = isAway(s);
+    const away = isAway(s, d);
     if (!sport) {
-      const info = `<div class="ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><div class="sub">${awayBadge(s) + absBadges(s, today(), last)} ${attSummary(stats(c, s.id)) || (away ? '' : '–')}</div>`;
+      const info = `<div class="ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><div class="sub">${awayBadge(s, d) + absBadges(s, d, last)} ${attSummary(stats(c, s.id)) || (away ? '' : '–')}</div>`;
       if (away) return `<div class="item mrow away"><div class="grow tap" onclick="location.hash='#/s/${c.id}/${s.id}'">${info}</div><span class="chev">›</span></div>`;
       return `<div class="item wrapitem"><div class="nm tap row" onclick="location.hash='#/s/${c.id}/${s.id}'"><div class="grow">${info}</div><span class="chev">›</span></div>
-      <div class="ubrow attrow">${attButtons(c, s)}</div></div>`;
+      <div class="ubrow attrow">${attButtons(c, s, d)}</div></div>`;
     }
     const chips = attChips(stats(c, s.id));
     return `<div class="item mrow ${away ? 'away' : ''}"><div class="grow tap" onclick="location.hash='#/s/${c.id}/${s.id}'"><div class="ell"><b>${h(s.last)}</b>, ${h(s.first)}</div><div class="sub">${awayBadge(s) + exemptBadge(s)} ${chips || (away || isExempt(s) ? '' : '–')}</div></div>
       <span class="chev">›</span></div>`; }).join('');
   const nAway = sts.length - activeCount(c);
-  return `${sts.length ? `<div class="card"><b>${activeCount(c)} Schüler</b>${nAway ? ` <span class="sub">· ${nAway} länger abwesend (nicht mitgezählt)</span>` : ''}</div>
+  return `${sts.length ? `${sport ? '' : dateBar()}<div class="card"><b>${activeCount(c)} Schüler</b>${nAway ? ` <span class="sub">· ${nAway} länger abwesend (nicht mitgezählt)</span>` : ''}</div>
     <div class="list">${rows}</div>
-    <p class="hint">${sport ? '' : '„zu spät“, „fehlt“ und „HA“ (Hausaufgabe fehlt) gelten für heute; noch einmal tippen nimmt den Eintrag zurück. ✎ für krank, eine Notiz oder einen anderen Tag. Beiträge (++ bis −−) trägst du über ✋ oder im Tab „Mitarbeit“ ein, Verhalten (VH) im Tab „Mitarbeit“. Name antippen öffnet die Schülerseite. '}Noten siehst du nur im Tab „Noten“. Längere Abwesenheit${sport ? ' und Sportbefreiung' : ''} stellst du beim Schüler über ✎ oben rechts ein.</p>` :`<div class="card empty">Noch keine Schüler. Füge sie einzeln hinzu oder importiere eine Klassenliste (PDF oder Text).</div>`}
+    <p class="hint">${sport ? '' : '„zu spät“, „fehlt“ und „HA“ (Hausaufgabe fehlt) gelten für den oben gewählten Tag (◀ ▶ wechselt den Tag); noch einmal tippen nimmt den Eintrag zurück. ✎ für krank, eine Notiz oder einen anderen Tag. Beiträge (++ bis −−) trägst du über ✋ oder im Tab „Mitarbeit“ ein, Verhalten (VH) im Tab „Mitarbeit“. Name antippen öffnet die Schülerseite. '}Noten siehst du nur im Tab „Noten“. Längere Abwesenheit${sport ? ' und Sportbefreiung' : ''} stellst du beim Schüler über ✎ oben rechts ein.</p>` :`<div class="card empty">Noch keine Schüler. Füge sie einzeln hinzu oder importiere eine Klassenliste (PDF oder Text).</div>`}
     <div class="btns"><button class="btn pri" onclick="A.addStudent('${c.id}')">+ Schüler</button><button class="btn" onclick="A.importStudents('${c.id}')">📄 Liste importieren</button></div>`;
 }
 A.addStudent = cid => {
@@ -701,9 +738,10 @@ A.importPreview = () => {
 /* ---------- Mitarbeit / Stunde / Strichliste ---------- */
 function tabContrib(c) {
   const view = ui.mView || 'erfassen';
-  const sw = `<div class="seg full-seg"><button class="${view === 'erfassen' ? 'on' : ''}" onclick="A.setMView('erfassen')">${c.type === 'sport' ? 'Stunde erfassen' : 'Erfassen'}</button><button class="${view === 'liste' ? 'on' : ''}" onclick="A.setMView('liste')">Strichliste</button></div>`;
+  const sw = `<div class="seg full-seg"><button class="${view === 'erfassen' ? 'on' : ''}" onclick="A.setMView('erfassen')">Erfassen</button><button class="${view === 'liste' ? 'on' : ''}" onclick="A.setMView('liste')">Strichliste</button><button class="${view === 'tage' ? 'on' : ''}" onclick="A.setMView('tage')">Fehlzeiten</button></div>`;
   if (!c.students.length) return sw + '<div class="card empty">Noch keine Schüler in dieser Klasse.</div>';
   if (view === 'liste') return sw + strichliste(c);
+  if (view === 'tage') return sw + fehlzeiten(c);
   return sw + (c.type === 'sport' ? sportDay(c) : contribDay(c));
 }
 A.setMView = v => { ui.mView = v; render(); };
@@ -724,6 +762,32 @@ function strichliste(c) {
     <p class="hint" style="margin-bottom:0">${sport ? `${lessons} erfasste Sportstunden seit ${fmtDate(since)}. ` : 'spät = zu spät · HA = Hausaufgabe fehlt · VH = Einträge zum Verhalten. '}Ab 3 Strichen rot markiert. Tippe auf einen Namen für Details.</p></div>
     <div class="card xscroll" style="padding:4px 10px"><table class="ov"><tr><th>Name</th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>${rows}</table></div>`;
 }
+/* Fehlzeiten-Übersicht: Schüler × erfasste Tage (neueste links). Tipp auf eine Zelle öffnet den Tages-Editor. */
+function fehlzeiten(c) {
+  const since = ui.since || schoolYearStart(), sport = c.type === 'sport', sts = sortStudents(c.students);
+  const inC = x => x.classId === c.id && x.date >= since;
+  const att = db.attendance.filter(inC), ha = sport ? [] : db.contribs.filter(x => inC(x) && x.val === 'HA'), vh = sport ? [] : db.remarks.filter(x => inC(x) && x.tag === 'Verhalten');
+  const days = [...new Set(att.concat(sport ? [] : db.contribs.filter(inC), vh).map(x => x.date))].sort().reverse();
+  const key = x => x.studentId + '|' + x.date, A1 = new Map(att.map(a => [key(a), a])), H = new Set(ha.map(key)), V = new Set(vh.map(key));
+  const cell = (s, d) => {
+    const a = A1.get(s.id + '|' + d), k = s.id + '|' + d, p = [];
+    if (a) {
+      if (a.status === 'fehlt') p.push(a.reason === 'krank' ? '<span class="sk">K</span>' : '<span class="mi">F</span>');
+      else if (a.status === 'verspaetet') p.push('<span class="lt">S</span>');
+      else if (a.status === 'passiv') p.push('<span class="pv">P</span>');
+      else if (a.status === 'befreit') p.push('<span class="ex">B</span>');
+      if (a.kit === 'vergessen') p.push('👕');
+    }
+    if (H.has(k)) p.push('<span class="hw">HA</span>');
+    if (V.has(k)) p.push('<span class="mat-c">V</span>');
+    return `<td onclick="A.dayEdit('${c.id}','${s.id}','${d}')">${p.join(' ') || '<span class="sub">·</span>'}</td>`;
+  };
+  const rows = sts.map(s => { const n = att.filter(a => a.studentId === s.id && a.status === 'fehlt').length;
+    return `<tr class="${isAway(s) ? 'away' : ''}"><td class="tap" onclick="location.hash='#/s/${c.id}/${s.id}/verlauf'">${h(s.last)}, ${h(s.first.split(' ')[0])}</td><td class="${n >= 3 ? 'hot' : ''}">${n || '·'}</td>${days.map(d => cell(s, d)).join('')}</tr>`; }).join('');
+  return `<div class="card"><label style="margin:0">Anzeigen ab<input type="date" value="${since}" onchange="A.setSince(this.value)"></label>
+    <p class="hint" style="margin-bottom:0">${sport ? '<span class="mi">F</span> fehlt · <span class="pv">P</span> passiv · <span class="ex">B</span> befreit · 👕 Sportzeug vergessen' : '<span class="mi">F</span> fehlt · <span class="sk">K</span> krank · <span class="lt">S</span> zu spät · <span class="hw">HA</span> Hausaufgabe fehlt · <span class="mat-c">V</span> Verhalten'}. Spalte „Σ“ zählt die Fehltage (fehlt und krank). Neueste Tage stehen links; seitlich wischen für ältere. Tippe auf ein Feld, um den Tag zu bearbeiten.</p></div>
+    ${days.length ? `<div class="card xscroll" style="padding:4px 10px"><table class="ov mx"><tr><th>Name</th><th>Σ</th>${days.map(d => `<th><small>${wdShort(d)}</small>${fmtShort(d)}</th>`).join('')}</tr>${rows}</table></div><button class="btn block" onclick="A.printMx('${c.id}')">🖨 Fehlzeiten drucken / als PDF</button>` : '<div class="card empty">In diesem Zeitraum ist noch nichts erfasst.</div>'}`;
+}
 function sportDay(c) {
   const d = ui.mDate || today();
   const sts = sortStudents(c.students);
@@ -736,7 +800,7 @@ function sportDay(c) {
     return `<div class="item wrapitem"><div class="nm tap" onclick="A.attNote('${c.id}','${s.id}')"><b>${h(s.last)}</b>, ${h(s.first)}${exemptBadge(s, d)}${r && r.note ? ` <span class="sub">· ${h(r.note)}</span>` : ' <span class="sub">✎</span>'}</div>
       <div class="seg">${['aktiv', 'passiv', 'fehlt'].concat(ex || (r && r.status === 'befreit') ? ['befreit'] : []).map(k => `<button class="${r && r.status === k ? 'on ' + k : ''}" onclick="A.att('${c.id}','${s.id}','status','${k}')">${k}</button>`).join('')}</div>
       <button class="kitbtn ${r && r.kit || ''}" onclick="A.att('${c.id}','${s.id}','kit')">${r && r.kit === 'vergessen' ? '👕 vergessen' : r && r.kit === 'dabei' ? '👕 dabei' : '👕 ?'}</button></div>`; }).join('');
-  return `<div class="card"><label style="margin:0">Datum<input type="date" value="${d}" onchange="A.setMDate(this.value)"></label>
+  return `${dateBar()}<div class="card">
     <button class="btn pri block mt" onclick="A.attAll('${c.id}')">Alle übrigen: aktiv + Sportzeug dabei</button>
     <p class="hint" style="margin-bottom:0"><span class="pl">aktiv ${cnt('aktiv')}</span> · <span class="pv">passiv ${cnt('passiv')}</span> ·<span class="mi">fehlt ${cnt('fehlt')}</span>${cnt('befreit') ? ` · befreit ${cnt('befreit')}` : ''} · 👕 vergessen ${verg}${offen ? ` · <b>${offen} noch offen</b>` : ''}<br>Tipp: Erst „Alle übrigen“ tippen, dann nur die Ausnahmen ändern. Schüler mit Sportbefreiung werden dabei als „befreit“ eingetragen. „Sportzeug vergessen“ setzt automatisch auf passiv. Name antippen für eine Notiz.</p></div>
     <div class="list">${rows}</div>`;
@@ -819,25 +883,34 @@ A.absSet = (cid, sid, k) => {
   attCleanup(); persist(); A.closeModal(); render();
 };
 /* Anwesenheit heute (Nicht-Sport): Umschalter „zu spät“, „fehlt“, „HA“ und ✎ – im Tab „Schüler“ und auf der Schülerseite */
-const haToday = sid => db.contribs.filter(x => x.studentId === sid && x.date === today() && x.val === 'HA');
-function attButtons(c, s) {
-  const r = attOf(s.id, today()), late = !!(r && r.status === 'verspaetet'), abs = !!(r && r.status === 'fehlt'), ha = haToday(s.id).length > 0;
+const haOn = (sid, d) => db.contribs.filter(x => x.studentId === sid && x.date === d && x.val === 'HA');
+function attButtons(c, s, d) {
+  d = d || today();
+  const r = attOf(s.id, d), late = !!(r && r.status === 'verspaetet'), abs = !!(r && r.status === 'fehlt'), ha = haOn(s.id, d).length > 0;
   const b = (on, cls, call, label, aria) => `<button type="button" class="kitbtn ${cls} ${on ? 'on' : ''}" onclick="${call}" aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
-  return b(late, 'late', `A.attToggle('${c.id}','${s.id}','verspaetet')`, 'zu spät', 'Heute zu spät') +
-    b(abs, 'abs', `A.attToggle('${c.id}','${s.id}','fehlt')`, 'fehlt', 'Fehlt heute') +
-    b(ha, 'ha', `A.haToggle('${c.id}','${s.id}')`, 'HA', 'Hausaufgabe fehlt heute') +
-    `<button type="button" class="mbtn undo" onclick="A.absSheet('${c.id}','${s.id}','${today()}')" aria-label="Anwesenheit bearbeiten: krank, Notiz oder anderer Tag">✎</button>`;
+  return b(late, 'late', `A.attToggle('${c.id}','${s.id}','verspaetet','${d}')`, 'zu spät', 'Zu spät') +
+    b(abs, 'abs', `A.attToggle('${c.id}','${s.id}','fehlt','${d}')`, 'fehlt', 'Fehlt') +
+    b(ha, 'ha', `A.haToggle('${c.id}','${s.id}','${d}')`, 'HA', 'Hausaufgabe fehlt') +
+    `<button type="button" class="mbtn undo" onclick="A.absSheet('${c.id}','${s.id}','${d}')" aria-label="Anwesenheit bearbeiten: krank, Notiz oder anderer Tag">✎</button>`;
 }
+/* Tageswahl mit Pfeilen (überspringt Wochenenden); gilt für die Tabs „Schüler“ und „Mitarbeit/Stunde“. */
+function shiftDay(d, n) { const x = new Date(d + 'T12:00:00'); do { x.setDate(x.getDate() + n); } while (x.getDay() === 0 || x.getDay() === 6); return isoDate(x); }
+function dateBar() {
+  const d = ui.mDate || today(), isT = d === today();
+  return `<div class="card datebar ${isT ? '' : 'other'}"><div class="row"><button type="button" class="btn" onclick="A.shiftMDate(-1)" aria-label="Vorheriger Schultag">◀</button><input type="date" class="grow" value="${d}" onchange="A.setMDate(this.value)" style="margin:0;text-align:center" aria-label="Datum"><button type="button" class="btn" onclick="A.shiftMDate(1)" aria-label="Nächster Schultag">▶</button></div>
+    <div class="row" style="justify-content:center;margin-top:8px;min-height:36px"><b>${wdShort(d)} ${fmtDate(d)}</b>${isT ? '<span class="sub">· heute</span>' : `<b class="lt">· nicht heute</b><button type="button" class="btn sm" onclick="A.setMDate('')">Zu heute</button>`}</div></div>`;
+}
+A.shiftMDate = n => { ui.mDate = shiftDay(ui.mDate || today(), n); if (ui.mDate === today()) ui.mDate = null; render(); };
 const attSummary = st => [['gefehlt', st.fehlt, 'mi'], ['zu spät', st.verspaetet, 'lt'], ['HA', st.ha, 'hw']].filter(x => x[1]).map(([l, n, cls]) => `<span class="${cls}">${l} ${n}</span>`).join(' · ');
-A.attToggle = (cid, sid, k) => {
-  const r = attRec(cid, sid, today());
+A.attToggle = (cid, sid, k, d) => {
+  const r = attRec(cid, sid, d || today());
   r.status = r.status === k ? null : k; delete r.reason;
   attCleanup(); persist(); render();
 };
-A.haToggle = (cid, sid) => {
-  const ex = haToday(sid);
+A.haToggle = (cid, sid, d) => {
+  d = d || today(); const ex = haOn(sid, d);
   if (ex.length) db.contribs = db.contribs.filter(x => !ex.includes(x));
-  else db.contribs.push({ id: uid(), classId: cid, studentId: sid, date: today(), val: 'HA', ts: Date.now() });
+  else db.contribs.push({ id: uid(), classId: cid, studentId: sid, date: d, val: 'HA', ts: Date.now() });
   persist(); render();
 };
 /* VH = Verhalten dokumentieren: wird als Bemerkung mit Kategorie „Verhalten“ gespeichert */
@@ -867,7 +940,7 @@ function contribDay(c) {
     return `<div class="item wrapitem"><div class="nm"><b>${h(s.last)}</b>, ${h(s.first)}${absBadges(s, d, last)}${note ? ` <span class="sub">· ${h(note)}</span>` : ''}${vhN ? ` <span class="chip mat-c">VH ${vhN}</span>` : ''} &nbsp;<span class="sub">${contribChips(list)}</span>${contribNotes(list).length ? `<div class="sub">${contribNotes(list).map(h).join(' · ')}</div>` : ''}</div>
       <div class="ubrow">${ubButtons(UB_VALS, v => `A.contrib('${c.id}','${s.id}','${v}')`)}<button type="button" class="mbtn vh" onclick="A.vh('${c.id}','${s.id}')" aria-label="Verhalten dokumentieren">VH</button><button class="mbtn undo" onclick="A.ub('${c.id}','${s.id}')" aria-label="Beiträge bearbeiten">✎</button></div></div>`;
   }).join('');
-  return `<div class="card"><label style="margin:0">Datum<input type="date" value="${d}" onchange="A.setMDate(this.value)"></label>
+  return `${dateBar()}<div class="card">
     <p class="hint" style="margin-bottom:0">++ sehr gut · + gut · − schwach · −− sehr schwach · VH Verhalten dokumentieren (wird als Bemerkung beim Schüler gespeichert) · ✎ Beiträge ändern oder löschen. Anwesenheit und HA trägst du im Tab „Schüler“ ein.${last ? `<br>Letzte erfasste Stunde: ${wdShort(last)} ${fmtDate(last)}. Wer da gefehlt hat, ist rot markiert.` : ''}</p></div>
     ${sts.length ? `<div class="list">${rows}</div>` : '<div class="card empty">Noch keine Schüler in dieser Klasse.</div>'}`;
 }
@@ -897,7 +970,7 @@ A.ub = (cid, sid) => {
   const s = getClass(cid).students.find(x => x.id === sid), d = ubOpen ? ubOpen.date : (ui.mDate || today());
   openModal(`${s.first} ${s.last} · Beiträge`, '', { cancelLabel: 'Fertig' }); ubOpen = { cid, sid, date: d }; refreshUb();
 };
-A.ubClass = cid => { openModal('Beiträge eintragen', '', { cancelLabel: 'Fertig' }); ubOpen = { cid, sid: null, date: today() }; refreshUb(); };
+A.ubClass = cid => { openModal('Beiträge eintragen', '', { cancelLabel: 'Fertig' }); ubOpen = { cid, sid: null, date: ui.mDate || today() }; refreshUb(); };
 A.ubDate = v => { ubOpen.date = v || today(); refreshUb(); };
 A.ubAdd = (val, sid) => { db.contribs.push({ id: uid(), classId: ubOpen.cid, studentId: sid || ubOpen.sid, date: ubOpen.date, val, ts: Date.now() }); persist(); refreshUb(); render(); };
 // Entfernt Einträge aus einer Sammlung (contribs, remarks, attendance, grades) und bietet „Rückgängig“ an.
@@ -980,7 +1053,7 @@ function tabGrades(c) {
     ${groups.length ? `<div class="list">${list}</div>` : '<div class="card empty">Noch keine Noten. Lege einen Leistungsnachweis für die Klasse an oder trage Einzelnoten beim jeweiligen Schüler ein.</div>'}
     ${sts.length ? `<div class="sec">Notenübersicht</div><div class="card xscroll" style="padding:4px 10px"><table class="ov"><tr><th>Name</th><th>Schnitt groß</th><th>Schnitt klein</th><th>Gesamt</th></tr>${ov}</table>
     <p class="hint">Gewichtung groß : klein = ${c.wBig} : ${c.wSmall}. Tendenzen: 2+ = 1,75 · 2− = 2,25.</p></div>
-    <button class="btn block" onclick="A.exportCsv('${c.id}')">⬇︎ Notenliste als CSV (Excel)</button>` : ''}`;
+    <button class="btn block" onclick="A.exportCsv('${c.id}')">⬇︎ Export als CSV (Noten + alle Einträge)</button>` : ''}`;
 }
 function kindOptions(sel) { return KINDS.map(([k]) => `<option ${k === sel ? 'selected' : ''}>${k}</option>`).join(''); }
 function catSelect(sel) { return `<select name="cat"><option value="gross" ${sel === 'gross' ? 'selected' : ''}>groß (Schulaufgabe)</option><option value="klein" ${sel === 'klein' ? 'selected' : ''}>klein (Ex, Abfrage, Referat …)</option></select>`; }
@@ -1066,16 +1139,57 @@ A.editGrade = (gradeId, cid, sid) => {
 A.exportCsv = cid => {
   const c = getClass(cid);
   toast('CSV gespeichert. Achtung: Die Datei ist nicht verschlüsselt.');
-  const groups = groupsOf(c).filter(g => g.isGroup).reverse();
+  const groups = groupsOf(c).filter(g => g.isGroup).reverse(), sport = c.type === 'sport', sts = sortStudents(c.students);
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const num = v => v == null ? '' : v.toFixed(2).replace('.', ',');
-  const head = ['Nachname', 'Vorname', ...groups.map(g => `${g.title} (${fmtShort(g.date)})`), 'Einzelnoten', 'Schnitt groß', 'Schnitt klein', 'Gesamt', ...(c.type === 'sport' ? ['aktiv', 'passiv', 'fehlt', 'befreit', 'Sportzeug vergessen'] : ['Beiträge ++', 'Beiträge +', 'Beiträge −', 'Beiträge −−', 'HA fehlt']), 'Abwesend bis'];
-  const rows = sortStudents(c.students).map(s => {
+  const sick = sid => db.attendance.filter(a => a.studentId === sid && a.status === 'fehlt' && a.reason === 'krank').length;
+  // Teil 1: Übersicht je Schüler (Noten, Schnitte, Zähler)
+  const head = ['Nachname', 'Vorname', ...groups.map(g => `${g.title} (${fmtShort(g.date)})`), 'Einzelnoten', 'Schnitt groß', 'Schnitt klein', 'Gesamt', ...(sport ? ['aktiv', 'passiv', 'fehlt', 'befreit', 'Sportzeug vergessen'] : ['fehlt (gesamt)', 'davon krank', 'zu spät', 'HA fehlt', 'Verhalten', 'Beiträge ++', 'Beiträge +', 'Beiträge −', 'Beiträge −−']), 'Abwesend bis'];
+  const rows = sts.map(s => {
     const st = stats(c, s.id);
-    const singles = db.grades.filter(g => g.studentId === s.id && !g.groupId).map(g => `${g.label} (${g.title})`).join(', ');
-    return [s.last, s.first, ...groups.map(g => { const x = g.items.find(i => i.studentId === s.id); return x ? x.label : ''; }), singles, num(st.big), num(st.small), num(st.total), ...(c.type === 'sport' ? [st.aktiv, st.passiv, st.fehlt, st.befreit, st.vergessen] : [st.plus2, st.plus, st.minus, st.minus2, st.ha]), isAway(s) ? (s.away.until ? fmtDate(s.away.until) : 'unbefristet') : ''];
+    const singles = db.grades.filter(g => g.studentId === s.id && !g.groupId).map(g => `${g.label} (${g.title}${g.comment ? ': ' + g.comment : ''})`).join(', ');
+    return [s.last, s.first, ...groups.map(g => { const x = g.items.find(i => i.studentId === s.id); return x ? x.label : ''; }), singles, num(st.big), num(st.small), num(st.total), ...(sport ? [st.aktiv, st.passiv, st.fehlt, st.befreit, st.vergessen] : [st.fehlt, sick(s.id), st.verspaetet, st.ha, st.vh, st.plus2, st.plus, st.minus, st.minus2]), isAway(s) ? (s.away.until ? fmtDate(s.away.until) : 'unbefristet') : ''];
   });
-  download(`Noten_${c.name}_${today()}.csv`.replace(/[\\/:*?"<>| ]/g, '_'), '﻿' + [head, ...rows].map(r => r.map(q).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+  // Teil 2: alle Einträge einzeln mit Datum (Anwesenheit, Mitarbeit, Hausaufgaben, Verhalten, Bemerkungen, Noten)
+  const name = new Map(c.students.map(s => [s.id, s])), ent = [];
+  const add = (x, art, wert, text) => { const s = name.get(x.studentId); if (s) ent.push([x.date || '', s.last, s.first, art, wert, text || '']); };
+  const ST = { fehlt: 'fehlt', verspaetet: 'zu spät', passiv: 'passiv', befreit: 'befreit', aktiv: 'aktiv' };
+  for (const a of db.attendance.filter(x => x.classId === c.id)) {
+    if (a.status && !(sport && a.status === 'aktiv' && !a.note)) add(a, 'Anwesenheit', a.status === 'fehlt' && a.reason === 'krank' ? 'krank' : ST[a.status] || a.status, a.note);
+    else if (a.note) add(a, 'Anwesenheit', 'Notiz', a.note);
+    if (a.kit === 'vergessen') add(a, 'Sportzeug', 'vergessen', '');
+  }
+  for (const x of db.contribs.filter(x => x.classId === c.id)) add(x, x.val === 'HA' ? 'Hausaufgabe' : x.val === 'MAT' ? 'Material' : 'Mitarbeit', x.val === 'HA' || x.val === 'MAT' ? 'fehlt' : UB_LABEL[x.val], x.note);
+  for (const r of db.remarks.filter(x => x.classId === c.id)) add(r, r.tag === 'Verhalten' ? 'Verhalten' : 'Bemerkung (' + r.tag + ')', '', r.text);
+  for (const g of db.grades.filter(x => x.classId === c.id)) add(g, 'Note: ' + g.title, g.label, g.comment);
+  ent.sort((a, b) => a[0].localeCompare(b[0]) || (a[1] + a[2]).localeCompare(b[1] + b[2], 'de'));
+  const part2 = [[], [`Alle Einträge nach Datum (${ent.length})`], ['Datum', 'Nachname', 'Vorname', 'Art', 'Wert', 'Bemerkung'], ...ent.map(e => [fmtDate(e[0]), ...e.slice(1)])];
+  download(`Klassenbuch_${c.name}_${today()}.csv`.replace(/[\\/:*?"<>| ]/g, '_'), '﻿' + [head, ...rows, ...part2].map(r => r.map(q).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+};
+/* Drucken / als PDF speichern: Der Inhalt wird in #print geschrieben; beim Drucken ist nur dieser Bereich sichtbar. */
+function printHtml(title, sub, html) {
+  document.getElementById('print').innerHTML = `<h1>${h(title)}</h1><p class="psub">${h(sub)} · Stand ${fmtDate(today())}</p>${html}`;
+  setTimeout(() => window.print(), 50);
+}
+addEventListener('afterprint', () => { document.getElementById('print').innerHTML = ''; });
+A.printStudent = (cid, sid) => {
+  const c = getClass(cid), s = c.students.find(x => x.id === sid), st = stats(c, sid), sport = c.type === 'sport';
+  const grades = db.grades.filter(g => g.studentId === sid).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const remarks = db.remarks.filter(r => r.studentId === sid && (sport || r.tag !== 'Verhalten')).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const log = studentLog(s, !sport).reverse();
+  const cnt = sport ? [['aktiv', st.aktiv], ['passiv', st.passiv], ['gefehlt', st.fehlt], ['befreit', st.befreit], ['Sportzeug vergessen', st.vergessen]]
+    : [['gefehlt', st.fehlt], ['zu spät', st.verspaetet], ['HA fehlt', st.ha], ['Verhalten', st.vh], ['++', st.plus2], ['+', st.plus], ['−', st.minus], ['−−', st.minus2]];
+  const tbl = (head, rows) => `<table><tr>${head.map(x => `<th>${x}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map(x => `<td>${x}</td>`).join('')}</tr>`).join('')}</table>`;
+  printHtml(`${s.first} ${s.last}`, `Klasse ${c.name}${c.subject ? ' · ' + c.subject : ''}${c.year ? ' · ' + c.year : ''}`,
+    `<h2>Noten</h2><p>Gesamt <b>${f2(st.total)}</b> · Schnitt groß ${f2(st.big)} · Schnitt klein ${f2(st.small)} (Gewichtung ${c.wBig} : ${c.wSmall})</p>
+    ${grades.length ? tbl(['Datum', 'Leistungsnachweis', 'Art', 'Note', 'Kommentar'], grades.map(g => [fmtDate(g.date), h(g.title), h(g.kind) + ' (' + CAT[g.cat] + ')', '<b>' + h(g.label) + '</b>', h(g.comment || '')])) : '<p>Noch keine Noten.</p>'}
+    <h2>${sport ? 'Sportstunden' : 'Anwesenheit und Mitarbeit'}</h2><p>${cnt.map(([l, n]) => `${l}: <b>${n}</b>`).join(' · ')}</p>
+    ${log.length ? tbl(['Datum', 'Einträge', 'Notizen'], log.map(e => [wdShort(e.date) + ' ' + fmtDate(e.date), e.tags.join(', '), e.notes.map(h).join(' · ')])) : '<p>Keine Einträge.</p>'}
+    ${remarks.length ? '<h2>Bemerkungen</h2>' + tbl(['Datum', 'Kategorie', 'Text'], remarks.map(r => [fmtDate(r.date), h(r.tag), h(r.text)])) : ''}`);
+};
+A.printMx = cid => {
+  const c = getClass(cid), t = document.querySelector('table.mx'); if (!t) return;
+  printHtml(`Fehlzeiten ${c.name}`, `${c.subject || ''}${c.year ? ' · ' + c.year : ''} · ab ${fmtDate(ui.since || schoolYearStart())}`, t.outerHTML.replace(/ onclick="[^"]*"/g, '') + `<p>${c.type === 'sport' ? 'F fehlt · P passiv · B befreit · 👕 Sportzeug vergessen' : 'F fehlt · K krank · S zu spät · HA Hausaufgabe fehlt · V Verhalten'} · Σ Fehltage</p>`);
 };
 
 /* ---------- To-dos ---------- */
@@ -1149,7 +1263,7 @@ function tabMore(c) {
   return `<div class="card"><h2>Klasse</h2><div><b>${h(c.name)}</b> · ${h(c.subject)} · ${h(c.year)}</div><div class="sub">Gewichtung groß : klein = ${c.wBig} : ${c.wSmall}</div>
     <button class="btn block mt" onclick="A.editClass('${c.id}')">Klasse bearbeiten / Gewichtung ändern</button></div>
     <div class="card"><h2>Schüler</h2><button class="btn block" onclick="A.importStudents('${c.id}')">📄 Klassenliste importieren (PDF/Text)</button>
-    <button class="btn block mt" onclick="A.exportCsv('${c.id}')">⬇︎ Notenliste als CSV (Excel)</button></div>
+    <button class="btn block mt" onclick="A.exportCsv('${c.id}')">⬇︎ Export als CSV (Noten + alle Einträge)</button></div>
     <div class="card"><h2>Verwaltung</h2><button class="btn block" onclick="A.archiveClass('${c.id}')">${c.archived ? 'Aus dem Archiv holen' : 'Klasse archivieren (z. B. Schuljahresende)'}</button>
     <button class="btn danger block mt" onclick="A.deleteClass('${c.id}')">Klasse endgültig löschen</button></div>`;
 }
@@ -1223,7 +1337,7 @@ function renderStudent(c, sid, view) {
   const att = db.attendance.filter(a => a.studentId === sid).sort((a, b) => b.date.localeCompare(a.date));
   const sw = `<div class="seg full-seg"><button class="${noten || verlauf ? '' : 'on'}" onclick="location.replace('#/s/${c.id}/${sid}')">Übersicht</button><button class="${verlauf ? 'on' : ''}" onclick="location.replace('#/s/${c.id}/${sid}/verlauf')">📅 Verlauf</button><button class="${noten ? 'on' : ''}" onclick="location.replace('#/s/${c.id}/${sid}/noten')">📝 Noten</button></div>`;
   const nav = `<div class="navstud mt">${prev ? `<button class="btn" onclick="location.replace('#/s/${c.id}/${prev.id}${sfx}')">‹ ${h(prev.first)}</button>` : '<span style="flex:1"></span>'}${next ? `<button class="btn" onclick="location.replace('#/s/${c.id}/${next.id}${sfx}')">${h(next.first)} ›</button>` : '<span style="flex:1"></span>'}</div>`;
-  const head = header(`${s.first} ${s.last}`, `#/c/${c.id}/${ui.tab && ui.tab.cid === c.id ? ui.tab.tab : 'schueler'}`, [['✎', `A.editStudent('${c.id}','${sid}')`, 'Schüler bearbeiten']]);
+  const head = header(`${s.first} ${s.last}`, `#/c/${c.id}/${ui.tab && ui.tab.cid === c.id ? ui.tab.tab : 'schueler'}`, [['🖨', `A.printStudent('${c.id}','${sid}')`, 'Schülerübersicht drucken oder als PDF speichern'], ['✎', `A.editStudent('${c.id}','${sid}')`, 'Schüler bearbeiten']]);
   if (verlauf) { app.innerHTML = head + `<main>${sw}${studentLogHtml(c, s, st)}${nav}</main>`; return; }
   if (noten) {
     app.innerHTML = head + `<main>${sw}
