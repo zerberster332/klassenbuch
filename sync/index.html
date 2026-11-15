@@ -141,6 +141,7 @@ details summary{cursor:pointer;color:var(--muted);padding:8px 4px;font-weight:60
 .full-seg{display:flex;width:100%;margin-bottom:12px}.full-seg button{flex:1;height:42px;font-size:15px}
 .wrapitem{flex-wrap:wrap;row-gap:6px}.nm{flex-basis:100%;min-width:0;overflow-wrap:anywhere}
 .kitbtn{height:44px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:0 10px;flex:1;cursor:pointer}
+.kitbtn.slim{flex:0 0 auto;min-width:62px;padding:0 8px;font-size:15px}
 .kitbtn.dabei{color:var(--ok);background:rgba(26,127,55,.15)}
 .kitbtn.vergessen{color:var(--bad);background:rgba(210,40,40,.15)}
 td.hot{color:var(--bad);font-weight:800}
@@ -757,13 +758,13 @@ function strichliste(c) {
   const sts = sortStudents(c.students);
   const sport = c.type === 'sport';
   const cols = sport
-    ? [['passiv', 'passiv', a => a.status === 'passiv'], ['fehlt', 'fehlt', a => a.status === 'fehlt'], ['verg', 'Sportzeug vergessen', a => a.kit === 'vergessen'], ['befreit', 'befreit', a => a.status === 'befreit']]
+    ? [['passiv', 'passiv', a => a.status === 'passiv'], ['fehlt', 'fehlt', a => a.status === 'fehlt'], ['verg', 'Sportzeug vergessen', a => a.kit === 'vergessen'], ['befreit', 'befreit', a => a.status === 'befreit'], ['VH', 'VH', x => x.tag === 'Verhalten']]
     : [['fehlt', 'fehlt', x => x.status === 'fehlt'], ['spaet', 'spät', x => x.status === 'verspaetet'], ['HA', 'HA', x => x.val === 'HA'], ['VH', 'VH', x => x.tag === 'Verhalten'], ['++', '++', x => x.val === '++'], ['+', '+', x => x.val === '+'], ['-', '−', x => x.val === '-'], ['--', '−−', x => x.val === '--']];
-  const src = (sport ? db.attendance : db.contribs.concat(db.attendance, db.remarks)).filter(x => x.classId === c.id && x.date >= since);
+  const src = (sport ? db.attendance.concat(db.remarks) : db.contribs.concat(db.attendance, db.remarks)).filter(x => x.classId === c.id && x.date >= since);
   const hotCols = sport ? ['passiv', 'fehlt', 'verg'] : ['fehlt', 'spaet', 'HA'];
   const rows = sts.map(s => { const mine = src.filter(x => x.studentId === s.id);
     return `<tr class="tap ${isAway(s) ? 'away' : ''}" onclick="location.hash='#/s/${c.id}/${s.id}/verlauf'"><td>${h(s.last)}, ${h(s.first.split(' ')[0])}</td>${cols.map(([k, , fn]) => { const n = mine.filter(fn).length; return `<td class="${hotCols.includes(k) && n >= 3 ? 'hot' : ''}">${n ? (n <= 6 && hotCols.includes(k) ? '|'.repeat(n) : n) : '·'}</td>`; }).join('')}</tr>`; }).join('');
-  const lessons = sport ? new Set(src.map(a => a.date)).size : null;
+  const lessons = sport ? new Set(src.filter(a => !a.tag).map(a => a.date)).size : null;
   return `<div class="card"><label style="margin:0">Zählen ab<input type="date" value="${since}" onchange="A.setSince(this.value)"></label>
     <p class="hint" style="margin-bottom:0">${sport ? `${lessons} erfasste Sportstunden seit ${fmtDate(since)}. ` : 'spät = zu spät · HA = Hausaufgabe fehlt · VH = Einträge zum Verhalten. '}Ab 3 Strichen rot markiert. Tippe auf einen Namen für Details.</p></div>
     <div class="card xscroll" style="padding:4px 10px"><table class="ov"><tr><th>Name</th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>${rows}</table></div>`;
@@ -772,7 +773,7 @@ function strichliste(c) {
 function fehlzeiten(c) {
   const since = ui.since || schoolYearStart(), sport = c.type === 'sport', sts = sortStudents(c.students);
   const inC = x => x.classId === c.id && x.date >= since;
-  const att = db.attendance.filter(inC), ha = sport ? [] : db.contribs.filter(x => inC(x) && x.val === 'HA'), vh = sport ? [] : db.remarks.filter(x => inC(x) && x.tag === 'Verhalten');
+  const att = db.attendance.filter(inC), ha = sport ? [] : db.contribs.filter(x => inC(x) && x.val === 'HA'), vh = db.remarks.filter(x => inC(x) && x.tag === 'Verhalten');
   const days = [...new Set(att.concat(sport ? [] : db.contribs.filter(inC), vh).map(x => x.date))].sort().reverse();
   const key = x => x.studentId + '|' + x.date, A1 = new Map(att.map(a => [key(a), a])), H = new Set(ha.map(key)), V = new Set(vh.map(key));
   const cell = (s, d) => {
@@ -791,7 +792,7 @@ function fehlzeiten(c) {
   const rows = sts.map(s => { const n = att.filter(a => a.studentId === s.id && a.status === 'fehlt').length;
     return `<tr class="${isAway(s) ? 'away' : ''}"><td class="tap" onclick="location.hash='#/s/${c.id}/${s.id}/verlauf'">${h(s.last)}, ${h(s.first.split(' ')[0])}</td><td class="${n >= 3 ? 'hot' : ''}">${n || '·'}</td>${days.map(d => cell(s, d)).join('')}</tr>`; }).join('');
   return `<div class="card"><label style="margin:0">Anzeigen ab<input type="date" value="${since}" onchange="A.setSince(this.value)"></label>
-    <p class="hint" style="margin-bottom:0">${sport ? '<span class="mi">F</span> fehlt · <span class="pv">P</span> passiv · <span class="ex">B</span> befreit · 👕 Sportzeug vergessen' : '<span class="mi">F</span> fehlt · <span class="sk">K</span> krank · <span class="lt">S</span> zu spät · <span class="hw">HA</span> Hausaufgabe fehlt · <span class="mat-c">V</span> Verhalten'}. Spalte „Σ“ zählt die Fehltage (fehlt und krank). Neueste Tage stehen links; seitlich wischen für ältere. Tippe auf ein Feld, um den Tag zu bearbeiten.</p></div>
+    <p class="hint" style="margin-bottom:0">${sport ? '<span class="mi">F</span> fehlt · <span class="pv">P</span> passiv · <span class="ex">B</span> befreit · 👕 Sportzeug vergessen · <span class="mat-c">V</span> Verhalten' : '<span class="mi">F</span> fehlt · <span class="sk">K</span> krank · <span class="lt">S</span> zu spät · <span class="hw">HA</span> Hausaufgabe fehlt · <span class="mat-c">V</span> Verhalten'}. Spalte „Σ“ zählt die Fehltage (fehlt und krank). Neueste Tage stehen links; seitlich wischen für ältere. Tippe auf ein Feld, um den Tag zu bearbeiten.</p></div>
     ${days.length ? `<div class="card xscroll" style="padding:4px 10px"><table class="ov mx"><tr><th>Name</th><th>Σ</th>${days.map(d => `<th><small>${wdShort(d)}</small>${fmtShort(d)}</th>`).join('')}</tr>${rows}</table></div><button class="btn block" onclick="A.printMx('${c.id}')">🖨 Fehlzeiten drucken / als PDF</button>` : '<div class="card empty">In diesem Zeitraum ist noch nichts erfasst.</div>'}`;
 }
 function sportDay(c) {
@@ -803,12 +804,13 @@ function sportDay(c) {
   const offen = sts.filter(s => !isAway(s, d) && (!recs.get(s.id) || !recs.get(s.id).status)).length;
   const rows = sts.map(s => { const r = recs.get(s.id), ex = isExempt(s, d);
     if (isAway(s, d)) return `<div class="item away"><div class="grow"><b>${h(s.last)}</b>, ${h(s.first)}${awayBadge(s, d)}</div></div>`;
-    return `<div class="item wrapitem"><div class="nm tap" onclick="A.attNote('${c.id}','${s.id}')"><b>${h(s.last)}</b>, ${h(s.first)}${exemptBadge(s, d)}${r && r.note ? ` <span class="sub">· ${h(r.note)}</span>` : ' <span class="sub">✎</span>'}</div>
+    return `<div class="item wrapitem"><div class="nm tap" onclick="A.attNote('${c.id}','${s.id}')"><b>${h(s.last)}</b>, ${h(s.first)}${exemptBadge(s, d)}${r && r.note ? ` <span class="sub">· ${h(r.note)}</span>` : ' <span class="sub">✎</span>'}${vhCount(s.id, d) ? ` <span class="chip mat-c">VH ${vhCount(s.id, d)}</span>` : ''}</div>
       <div class="seg">${['aktiv', 'passiv', 'fehlt'].concat(ex || (r && r.status === 'befreit') ? ['befreit'] : []).map(k => `<button class="${r && r.status === k ? 'on ' + k : ''}" onclick="A.att('${c.id}','${s.id}','status','${k}')">${k}</button>`).join('')}</div>
-      <button class="kitbtn ${r && r.kit || ''}" onclick="A.att('${c.id}','${s.id}','kit')">${r && r.kit === 'vergessen' ? '👕 vergessen' : r && r.kit === 'dabei' ? '👕 dabei' : '👕 ?'}</button></div>`; }).join('');
+      <button class="kitbtn slim ${r && r.kit || ''}" onclick="A.att('${c.id}','${s.id}','kit')" aria-label="Sportzeug: ${r && r.kit === 'vergessen' ? 'vergessen' : r && r.kit === 'dabei' ? 'dabei' : 'noch nicht eingetragen'}">${r && r.kit === 'vergessen' ? '👕 ✗' : r && r.kit === 'dabei' ? '👕 ✓' : '👕 ?'}</button>
+      <button type="button" class="mbtn vh" style="height:44px" onclick="A.vh('${c.id}','${s.id}')" aria-label="Verhalten dokumentieren">VH</button></div>`; }).join('');
   return `${dateBar()}<div class="card">
     <button class="btn pri block mt" onclick="A.attAll('${c.id}')">Alle übrigen: aktiv + Sportzeug dabei</button>
-    <p class="hint" style="margin-bottom:0"><span class="pl">aktiv ${cnt('aktiv')}</span> · <span class="pv">passiv ${cnt('passiv')}</span> ·<span class="mi">fehlt ${cnt('fehlt')}</span>${cnt('befreit') ? ` · befreit ${cnt('befreit')}` : ''} · 👕 vergessen ${verg}${offen ? ` · <b>${offen} noch offen</b>` : ''}<br>Tipp: Erst „Alle übrigen“ tippen, dann nur die Ausnahmen ändern. Schüler mit Sportbefreiung werden dabei als „befreit“ eingetragen. „Sportzeug vergessen“ setzt automatisch auf passiv. Name antippen für eine Notiz.</p></div>
+    <p class="hint" style="margin-bottom:0"><span class="pl">aktiv ${cnt('aktiv')}</span> · <span class="pv">passiv ${cnt('passiv')}</span> ·<span class="mi">fehlt ${cnt('fehlt')}</span>${cnt('befreit') ? ` · befreit ${cnt('befreit')}` : ''} · 👕 vergessen ${verg}${offen ? ` · <b>${offen} noch offen</b>` : ''}<br>Tipp: Erst „Alle übrigen“ tippen, dann nur die Ausnahmen ändern. Schüler mit Sportbefreiung werden dabei als „befreit“ eingetragen. „Sportzeug vergessen“ setzt automatisch auf passiv. 👕 ✓ = Sportzeug dabei, 👕 ✗ = vergessen. VH = Verhalten dokumentieren (fair, unfair, stört …). Name antippen für eine Notiz.</p></div>
     <div class="list">${rows}</div>`;
 }
 function attRec(cid, sid, d) {
@@ -921,11 +923,12 @@ A.haToggle = (cid, sid, d) => {
 };
 /* VH = Verhalten dokumentieren: wird als Bemerkung mit Kategorie „Verhalten“ gespeichert */
 const VH_PRESETS = ['Stört den Unterricht', 'Schwätzt', 'Handy', 'Arbeitsverweigerung', 'Respektlos', 'Material nicht dabei', 'Positiv: hilfsbereit', 'Positiv: besonders engagiert'];
+const VH_PRESETS_SPORT = ['Fair', 'Unfair', 'Stört', 'Respektlos', 'Verweigert Auf-/Abbau', 'Hält Regeln nicht ein', 'Gefährdet andere', 'Macht nicht mit', 'Besonders engagiert', 'Hilfsbereit / freundlich'];
 const vhCount = (sid, d) => db.remarks.filter(r => r.studentId === sid && r.tag === 'Verhalten' && (!d || r.date === d)).length;
 A.vh = (cid, sid, d) => {
   d = d || ui.mDate || today();
   const s = getClass(cid).students.find(x => x.id === sid);
-  openModal(`Verhalten · ${s.first} ${s.last} · ${fmtDate(d)}`, `<div class="vhchips">${VH_PRESETS.map(p => `<button type="button" class="kitbtn" onclick="A.vhPick(this)">${h(p)}</button>`).join('')}</div>
+  openModal(`Verhalten · ${s.first} ${s.last} · ${fmtDate(d)}`, `<div class="vhchips">${(getClass(cid).type === 'sport' ? VH_PRESETS_SPORT : VH_PRESETS).map(p => `<button type="button" class="kitbtn" onclick="A.vhPick(this)">${h(p)}</button>`).join('')}</div>
     <label>Details (optional)<textarea name="text" rows="4" placeholder="Was ist passiert?"></textarea></label>
     <p class="hint">Antippen fügt den Text ein. Gespeichert wird eine Bemerkung „Verhalten“ – auf der Schülerseite unter „Bemerkungen“ änderbar und löschbar. Ohne Text wird „Fehlverhalten“ eingetragen.</p>`, {
     onSave: f => { db.remarks.push({ id: uid(), classId: cid, studentId: sid, date: d, tag: 'Verhalten', text: f.text.value.trim() || 'Fehlverhalten', ts: Date.now() }); persist(); toast('Verhalten eingetragen.'); }
@@ -1000,7 +1003,7 @@ function dayBody() {
   const opts = sport ? [['aktiv', 'aktiv'], ['passiv', 'passiv'], ['fehlt', 'fehlt'], ['befreit', 'befreit']] : [['', 'da'], ['krank', 'krank'], ['fehlt', 'fehlt'], ['verspaetet', 'zu spät']];
   const seg = (list, on, field) => `<div class="seg full-seg">${list.map(([k, l]) => `<button type="button" class="${on === k ? 'on' + (field === 'status' ? ' ' + (k || 'da') : '') : ''}" aria-pressed="${on === k}" onclick="A.daySet('${field}','${k}')">${l}</button>`).join('')}</div>`;
   const cs = db.contribs.filter(x => x.studentId === sid && x.date === d).sort((a, b) => (a.ts || 0) - (b.ts || 0));
-  const vh = sport ? [] : db.remarks.filter(x => x.studentId === sid && x.date === d && x.tag === 'Verhalten');
+  const vh = db.remarks.filter(x => x.studentId === sid && x.date === d && x.tag === 'Verhalten');
   return `<div class="sec" style="margin-left:0">Anwesenheit</div>${seg(opts, cur, 'status')}
     ${sport ? seg([['dabei', '👕 dabei'], ['vergessen', '👕 vergessen'], ['', 'kein Eintrag']], r.kit || '', 'kit') : ''}
     <label>Notiz zur Anwesenheit<input value="${h(r.note || '')}" placeholder="z. B. Arzttermin, Attest" onchange="A.daySet('note',this.value)"></label>
@@ -1035,7 +1038,7 @@ A.dayAdd = val => { const { cid, sid, d } = dayOpen; db.contribs.push({ id: uid(
 A.dayDel = (coll, id) => { removeUndo(coll, x => x.id === id, 'Eintrag gelöscht.'); refreshDay(); render(); };
 A.dayClear = () => {
   const { cid, sid, d } = dayOpen, mine = x => x.studentId === sid && x.date === d;
-  const old = { attendance: db.attendance.filter(mine), contribs: db.contribs.filter(mine), remarks: getClass(cid).type !== 'sport' ? db.remarks.filter(x => mine(x) && x.tag === 'Verhalten') : [] };
+  const old = { attendance: db.attendance.filter(mine), contribs: db.contribs.filter(mine), remarks: db.remarks.filter(x => mine(x) && x.tag === 'Verhalten') };
   for (const k in old) db[k] = db[k].filter(x => !old[k].includes(x));
   persist(); A.closeModal(); render();
   undoable(`Einträge vom ${fmtDate(d)} gelöscht.`, () => { for (const k in old) { const have = new Set(db[k].map(x => x.id)); db[k].push(...old[k].filter(x => !have.has(x.id))); } });
@@ -1266,9 +1269,9 @@ addEventListener('afterprint', () => { document.getElementById('print').innerHTM
 A.printStudent = (cid, sid) => {
   const c = getClass(cid), s = c.students.find(x => x.id === sid), st = stats(c, sid), sport = c.type === 'sport';
   const grades = db.grades.filter(g => g.studentId === sid).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  const remarks = db.remarks.filter(r => r.studentId === sid && (sport || r.tag !== 'Verhalten')).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  const log = studentLog(s, !sport).reverse();
-  const cnt = sport ? [['aktiv', st.aktiv], ['passiv', st.passiv], ['gefehlt', st.fehlt], ['befreit', st.befreit], ['Sportzeug vergessen', st.vergessen]]
+  const remarks = db.remarks.filter(r => r.studentId === sid && r.tag !== 'Verhalten').sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const log = studentLog(s, true).reverse();
+  const cnt = sport ? [['aktiv', st.aktiv], ['passiv', st.passiv], ['gefehlt', st.fehlt], ['befreit', st.befreit], ['Sportzeug vergessen', st.vergessen], ['Verhalten', st.vh]]
     : [['gefehlt', st.fehlt], ['zu spät', st.verspaetet], ['HA fehlt', st.ha], ['Verhalten', st.vh], ['++', st.plus2], ['+', st.plus], ['−', st.minus], ['−−', st.minus2]];
   const tbl = (head, rows) => `<table><tr>${head.map(x => `<th>${x}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map(x => `<td>${x}</td>`).join('')}</tr>`).join('')}</table>`;
   printHtml(`${s.first} ${s.last}`, `Klasse ${c.name}${c.subject ? ' · ' + c.subject : ''}${c.year ? ' · ' + c.year : ''}`,
@@ -1280,7 +1283,7 @@ A.printStudent = (cid, sid) => {
 };
 A.printMx = cid => {
   const c = getClass(cid), t = document.querySelector('table.mx'); if (!t) return;
-  printHtml(`Fehlzeiten ${c.name}`, `${c.subject || ''}${c.year ? ' · ' + c.year : ''} · ab ${fmtDate(ui.since || schoolYearStart())}`, t.outerHTML.replace(/ onclick="[^"]*"/g, '') + `<p>${c.type === 'sport' ? 'F fehlt · P passiv · B befreit · 👕 Sportzeug vergessen' : 'F fehlt · K krank · S zu spät · HA Hausaufgabe fehlt · V Verhalten'} · Σ Fehltage</p>`);
+  printHtml(`Fehlzeiten ${c.name}`, `${c.subject || ''}${c.year ? ' · ' + c.year : ''} · ab ${fmtDate(ui.since || schoolYearStart())}`, t.outerHTML.replace(/ onclick="[^"]*"/g, '') + `<p>${c.type === 'sport' ? 'F fehlt · P passiv · B befreit · 👕 Sportzeug vergessen · V Verhalten' : 'F fehlt · K krank · S zu spät · HA Hausaufgabe fehlt · V Verhalten'} · Σ Fehltage</p>`);
 };
 
 /* Nachholen: Schüler ohne Wert und ohne Note bei einer bereits durchgeführten Messung erscheinen automatisch bei den To-dos.
@@ -1417,9 +1420,9 @@ function studentLog(s, withVh) {
   return Object.keys(map).sort().reverse().map(d => ({ date: d, ...map[d] }));
 }
 function studentLogHtml(c, s, st) {
-  const sport = c.type === 'sport', log = studentLog(s, !sport);
+  const sport = c.type === 'sport', log = studentLog(s, true);
   const sum = (sport
-    ? [['gefehlt', st.fehlt, 'mi'], ['passiv', st.passiv, 'pv'], ['Sportzeug vergessen', st.vergessen, 'mi'], ['befreit', st.befreit, 'ex']]
+    ? [['gefehlt', st.fehlt, 'mi'], ['passiv', st.passiv, 'pv'], ['Sportzeug vergessen', st.vergessen, 'mi'], ['befreit', st.befreit, 'ex'], ['Verhalten', st.vh, 'mat-c']]
     : [['gefehlt', st.fehlt, 'mi'], ['zu spät', st.verspaetet, 'lt'], ['++', st.plus2, 'pl'], ['+', st.plus, 'pl'], ['−', st.minus, 'mi'], ['−−', st.minus2, 'mi'], ['HA fehlt', st.ha, 'hw'], ['Verhalten', st.vh, 'mat-c']].concat(st.mat ? [['Material', st.mat, 'mat-c']] : []))
     .map(([l, n, cls]) => `<div><div class="v ${n ? cls : ''}">${n}</div><div class="l">${l}</div></div>`).join('');
   const wd = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short' });
@@ -1431,7 +1434,7 @@ function studentLogHtml(c, s, st) {
     rows += `<div class="item tap" style="min-height:44px" onclick="A.dayEdit('${c.id}','${s.id}','${e.date}')" role="button" aria-label="Einträge vom ${fmtDate(e.date)} bearbeiten"><div class="grow"><b>${wd(e.date)} ${fmtDate(e.date)}</b>${e.notes.length ? `<div class="sub">${e.notes.map(h).join(' · ')}</div>` : ''}</div><div style="text-align:right">${e.tags.join('<br>') || '<span class="sub">Notiz</span>'}</div><span class="chev">✎</span></div>`;
   }
   const period = x => (x.from ? fmtDate(x.from) : 'offen') + ' bis ' + (x.until ? fmtDate(x.until) : 'offen');
-  return `<div class="card"><div class="sub">Insgesamt</div><div class="stats" style="grid-template-columns:${sport ? 'repeat(4,1fr)' : 'repeat(auto-fit,minmax(70px,1fr));row-gap:12px'}">${sum}</div></div>
+  return `<div class="card"><div class="sub">Insgesamt</div><div class="stats" style="grid-template-columns:${sport ? 'repeat(auto-fit,minmax(70px,1fr));row-gap:12px' : 'repeat(auto-fit,minmax(70px,1fr));row-gap:12px'}">${sum}</div></div>
     ${s.away ? `<div class="card"><b>${h(s.away.label || 'Länger abwesend')}</b><div class="sub">${period(s.away)}</div></div>` : ''}
     ${sport && s.exempt ? `<div class="card"><b>🩹 Sportbefreiung</b><div class="sub">${period(s.exempt)}${s.exempt.note ? ' · ' + h(s.exempt.note) : ''}</div></div>` : ''}
     ${log.length ? rows + '</div>' : `<div class="card empty">Keine Einträge: nie gefehlt${sport ? ', nie passiv, nichts vergessen' : ', keine Beiträge, keine Hausaufgabe vergessen, kein Verhaltens-Eintrag'}.</div>`}
@@ -1465,7 +1468,8 @@ function renderStudent(c, sid, view) {
   app.innerHTML = head + `<main>${sw}
     ${isAway(s) || (c.type === 'sport' && isExempt(s)) ? `<div class="card row"><div class="grow">${awayBadge(s)}${c.type === 'sport' ? exemptBadge(s) : ''}${c.type === 'sport' && isExempt(s) && s.exempt.note ? ` <span class="sub">${h(s.exempt.note)}</span>` : ''}</div><button class="btn sm" onclick="A.editStudent('${c.id}','${sid}')">Ändern</button></div>` : ''}
     ${c.type === 'sport'
-      ? `<div class="card"><div class="sub">Sportstunden</div><div><span class="pl">aktiv ${st.aktiv}</span> &nbsp;<span class="pv">passiv ${st.passiv}</span> &nbsp;<span class="mi">fehlt ${st.fehlt}</span> &nbsp;<span class="mi">👕 vergessen ${st.vergessen}</span>${st.befreit ? ` &nbsp;<span class="sub">befreit ${st.befreit}</span>` : ''}</div></div>`
+      ? `<div class="card"><div class="sub">Sportstunden</div><div><span class="pl">aktiv ${st.aktiv}</span> &nbsp;<span class="pv">passiv ${st.passiv}</span> &nbsp;<span class="mi">fehlt ${st.fehlt}</span> &nbsp;<span class="mi">👕 vergessen ${st.vergessen}</span>${st.befreit ? ` &nbsp;<span class="ex">befreit ${st.befreit}</span>` : ''}${st.vh ? ` &nbsp;<span class="mat-c">VH ${st.vh}</span>` : ''}</div>
+      <button type="button" class="mbtn vh mt" style="width:100%;height:44px" onclick="A.vh('${c.id}','${sid}','${today()}')">VH · Verhalten heute dokumentieren</button></div>`
       : `<div class="card"><div class="sub">Beiträge gesamt</div><div>${contribChips(cs) || '–'}${st.vh ? ` &nbsp;<span class="mat-c">VH ${st.vh}</span>` : ''}</div><div class="sub">heute: ${contribChips(td) || '–'}${vhCount(sid, today()) ? ` &nbsp;<span class="mat-c">VH ${vhCount(sid, today())}</span>` : ''}</div>
     <div class="ubrow mt">${ubButtons(UB_VALS, v => `A.contribToday('${c.id}','${sid}','${v}')`)}<button type="button" class="mbtn vh" onclick="A.vh('${c.id}','${sid}','${today()}')" aria-label="Verhalten dokumentieren">VH</button><button class="mbtn undo" onclick="A.ub('${c.id}','${sid}')" aria-label="Beiträge ändern">✎</button></div></div>
     <div class="card"><div class="sub">Anwesenheit heute${absBadges(s, today(), lastLesson(c, today()))}</div><div class="sub">insgesamt: ${attSummary(st) || '–'}</div>
