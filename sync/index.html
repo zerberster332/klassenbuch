@@ -525,7 +525,7 @@ window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); }
 function renderHome() {
   const active = db.classes.filter(c => !c.archived), arch = db.classes.filter(c => c.archived);
   const t0 = today();
-  const card = c => { const open = c.todos.filter(t => !t.done).length;
+  const card = c => { const open = openTodos(c);
     // Zeile „Heute“: schon etwas eingetragen? Wer fehlt, fällige To-dos, länger Abwesende.
     const att = db.attendance.filter(a => a.classId === c.id && a.date === t0);
     const done = att.length || db.contribs.some(x => x.classId === c.id && x.date === t0);
@@ -590,7 +590,7 @@ function renderClass(c, tab) {
   if (ui.tab && ui.tab.cid !== c.id) ui.mDate = null; // andere Klasse: wieder mit heute beginnen
   ui.tab = { cid: c.id, tab }; // für den Zurück-Knopf der Schülerseite
   const body = { schueler: tabStudents, mitarbeit: tabContrib, noten: tabGrades, todos: tabTodos, mehr: tabMore }[tab](c);
-  const open = c.todos.filter(t => !t.done).length;
+  const open = openTodos(c);
   const fab = c.type !== 'sport' && tab !== 'mitarbeit' && c.students.length ? `<button class="fab" onclick="A.ubClass('${c.id}')" aria-label="Beiträge eintragen" title="Beiträge eintragen">✋</button>` : '';
   app.innerHTML = header(c.name + (c.subject ? ' · ' + c.subject : ''), '#/', [['🔒', 'A.lock()', 'Sperren']]) + `<main>${body}</main>` + fab +
     `<nav class="tabs">${TABS.map(([k, i, l]) => `<a href="#/c/${c.id}/${k}" class="${k === tab ? 'on' : ''}" ${k === tab ? 'aria-current="page"' : ''}><span class="ti" aria-hidden="true">${i}</span>${l}${k === 'todos' && open ? ` (${open})` : ''}</a>`).join('')}</nav>`;
@@ -1163,7 +1163,7 @@ A.editMeasure = (cid, mid) => {
     <label>Einheit (optional)<input name="unit" value="${h(m.unit || '')}" placeholder="s, m, cm …" autocomplete="off" autocapitalize="off" onchange="A.measSave()"></label>
     <label>Versuche<select name="tries" onchange="A.measSave(true)">${opt([1, 2, 3, 4, 5].map(n => [n, n]), measTries(m))}</select></label>
     <label>Bestwert<select name="better" onchange="A.measSave(true)">${opt([['low', 'kleinster (Zeit)'], ['high', 'größter (Weite, Höhe)'], ['', 'nicht anzeigen']], m.better || '')}</select></label></div>
-    <p class="hint">Jede Eingabe wird sofort gespeichert. Enter springt zum nächsten Schüler im selben Versuch. Zeiten über einer Minute: 1:05,3 oder 1,05,3. Das Feld „Note“ kannst du leer lassen und später nachtragen; eingetragene Noten zählen als kleiner Leistungsnachweis mit dem Titel der Messung.</p>
+    <p class="hint">Jede Eingabe wird sofort gespeichert. Enter springt zum nächsten Schüler im selben Versuch. Zeiten über einer Minute: 1:05,3 oder 1,05,3. Das Feld „Note“ kannst du leer lassen und später nachtragen; eingetragene Noten zählen als kleiner Leistungsnachweis mit dem Titel der Messung. Wer keinen Wert und keine Note hat, erscheint automatisch im Tab „To-dos“ unter „Nachholen“.</p>
     <div id="measRows">${measRows(c, m)}</div>`, {
     cancelLabel: 'Fertig',
     onDelete: async () => {
@@ -1283,8 +1283,30 @@ A.printMx = cid => {
   printHtml(`Fehlzeiten ${c.name}`, `${c.subject || ''}${c.year ? ' · ' + c.year : ''} · ab ${fmtDate(ui.since || schoolYearStart())}`, t.outerHTML.replace(/ onclick="[^"]*"/g, '') + `<p>${c.type === 'sport' ? 'F fehlt · P passiv · B befreit · 👕 Sportzeug vergessen' : 'F fehlt · K krank · S zu spät · HA Hausaufgabe fehlt · V Verhalten'} · Σ Fehltage</p>`);
 };
 
+/* Nachholen: Schüler ohne Wert und ohne Note bei einer bereits durchgeführten Messung erscheinen automatisch bei den To-dos.
+   Sie verschwinden, sobald ein Wert oder eine Note eingetragen ist, oder wenn man sie abhakt (m.skip). */
+function measTodos(c) {
+  const out = [];
+  for (const m of db.measures.filter(m => m.classId === c.id).sort((a, b) => (a.date || '').localeCompare(b.date || ''))) {
+    if (!Object.keys(m.vals).length) continue;
+    for (const s of sortStudents(c.students))
+      if (!m.vals[s.id] && !(m.skip && m.skip[s.id]) && !isAway(s) && !db.grades.some(g => g.groupId === m.id && g.studentId === s.id)) out.push({ m, s });
+  }
+  return out;
+}
+const openTodos = c => c.todos.filter(t => !t.done).length + measTodos(c).length;
+A.measSkip = (cid, mid, sid) => {
+  const m = db.measures.find(x => x.id === mid); if (!m) return;
+  (m.skip ||= {})[sid] = true; persist(); setTimeout(render, 150);
+  undoable('Abgehakt – muss nicht nachgeholt werden.', () => { const mm = db.measures.find(x => x.id === mid); if (mm && mm.skip) delete mm.skip[sid]; });
+};
 /* ---------- To-dos ---------- */
 function tabTodos(c) {
+  const mt = measTodos(c);
+  const mtList = mt.length ? `<div class="sec">Nachholen (${mt.length})</div><div class="list">${mt.map(({ m, s }) => { const a = attOf(s.id, m.date), why = a && a.status === 'fehlt' ? (a.reason === 'krank' ? 'war krank' : 'fehlte') : a && a.status === 'befreit' ? 'war befreit' : a && a.status === 'passiv' ? 'war passiv' : 'kein Wert';
+    return `<div class="item"><input type="checkbox" onchange="A.measSkip('${c.id}','${m.id}','${s.id}')" aria-label="Muss nicht nachgeholt werden">
+    <div class="grow tap" onclick="A.editMeasure('${c.id}','${m.id}')"><div class="t"><b>${h(s.first)} ${h(s.last)}</b>: ${h(m.title || 'Messung')}</div><div class="sub">${why} am ${fmtDate(m.date)} · antippen zum Eintragen</div></div><span aria-hidden="true">⏱</span></div>`; }).join('')}</div>
+    <p class="hint">Diese Einträge entstehen automatisch: Schüler ohne Wert und ohne Note bei einer Messung. Sie verschwinden, sobald du etwas einträgst. Abhaken, wenn nichts nachgeholt werden muss.</p>` : '';
   const open = c.todos.filter(t => !t.done).sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || a.created - b.created);
   const done = c.todos.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const t0 = today();
@@ -1292,7 +1314,8 @@ function tabTodos(c) {
     <div class="grow tap" onclick="A.editTodo('${c.id}','${t.id}')"><div class="t">${h(t.text)}</div>${t.due ? `<div class="sub ${!t.done && t.due < t0 ? 'overdue' : ''}">bis ${fmtDate(t.due)}</div>` : ''}</div></div>`;
   return `<form class="card" onsubmit="A.addTodo(event,'${c.id}')"><input name="text" placeholder="Neues To-do, z. B. „Ex korrigieren“" autocomplete="off">
     <div class="row mt"><input type="date" name="due" class="grow" style="margin:0" aria-label="Fällig am"><button class="btn pri">Hinzufügen</button></div></form>
-    ${open.length ? `<div class="list">${open.map(item).join('')}</div>` : '<div class="card empty">Keine offenen To-dos 🎉</div>'}
+    ${open.length ? `<div class="list">${open.map(item).join('')}</div>` : mt.length ? '' : '<div class="card empty">Keine offenen To-dos 🎉</div>'}
+    ${mtList}
     ${done.length ? `<details><summary>Erledigt (${done.length})</summary><div class="list">${done.map(item).join('')}</div><button class="btn danger block" onclick="A.clearDone('${c.id}')">Erledigte löschen</button></details>` : ''}
     ${checklistCards(c)}`;
 }
