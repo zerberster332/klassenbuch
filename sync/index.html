@@ -152,6 +152,10 @@ td.hot{color:var(--bad);font-weight:800}
 table.mx td,table.mx th{min-width:40px}
 table.mx td{font-weight:700;font-size:13px;cursor:pointer}
 table.mx th small{display:block;font-weight:400}
+.measrow{padding:8px 0;border-bottom:1px solid var(--line)}
+.measin{gap:6px;margin-top:4px}
+.measin input{margin:0;min-width:0;flex:1;text-align:center;padding:10px 4px}
+.measin input.note{flex:0 0 66px;border-color:var(--pri);font-weight:700}
 #print{display:none}
 @media print{
   body>*:not(#print){display:none!important}
@@ -348,7 +352,8 @@ function persist(noMark) {
 function normalize(d) {
   d = d || {}; d.version = 1;
   d.settings = Object.assign({ autoLockMin: 10, lastBackup: null, autoBackup: 'daily' }, d.settings || {});
-  for (const k of ['classes', 'grades', 'contribs', 'remarks', 'attendance']) if (!Array.isArray(d[k])) d[k] = [];
+  for (const k of ['classes', 'grades', 'contribs', 'remarks', 'attendance', 'measures']) if (!Array.isArray(d[k])) d[k] = [];
+  d.measures.forEach(m => { if (!m.vals || typeof m.vals !== 'object') m.vals = {}; });
   d.classes.forEach(c => { c.students ||= []; c.todos ||= []; c.checklists ||= []; c.type ||= /sport/i.test(c.subject || '') ? 'sport' : 'standard'; if (c.wBig == null) c.wBig = 2; if (c.wSmall == null) c.wSmall = 1; });
   return d;
 }
@@ -428,7 +433,7 @@ function openModal(title, body, opts = {}) {
   const first = document.querySelector('#mBody [autofocus]'); if (first) setTimeout(() => first.focus(), 50);
 }
 let ubOpen = null, dayOpen = null;
-A.closeModal = () => { document.getElementById('modal').classList.add('hidden'); document.getElementById('mBody').innerHTML = ''; modalCfg = null; ubOpen = null; dayOpen = null; };
+A.closeModal = () => { document.getElementById('modal').classList.add('hidden'); document.getElementById('mBody').innerHTML = ''; modalCfg = null; ubOpen = null; dayOpen = null; measOpen = null; };
 // Tipp neben das Fenster: schließt nur Fenster ohne „Speichern“, damit halb ausgefüllte Eingaben nicht verloren gehen.
 A.backdrop = () => { if (!modalCfg || !modalCfg.onSave) A.closeModal(); };
 A.modalDelete = async () => { const cfg = modalCfg; if (cfg && cfg.onDelete && (await cfg.onDelete()) !== false && modalCfg === cfg) { A.closeModal(); render(); } };
@@ -644,6 +649,7 @@ A.editStudent = (cid, sid) => {
       if (!await askConfirm(`${s.first} ${s.last} mit allen Noten, Beiträgen und Bemerkungen löschen?`, { ok: 'Löschen', danger: true })) return false;
       c.students = c.students.filter(x => x.id !== sid);
       for (const k of ['grades', 'contribs', 'remarks', 'attendance']) db[k] = db[k].filter(x => x.studentId !== sid);
+      db.measures.forEach(m => { delete m.vals[sid]; });
       persist(); location.hash = '#/c/' + cid;
     }
   });
@@ -1044,11 +1050,15 @@ function tabGrades(c) {
   const list = groups.map(g => {
     const avg = wavg(g.items.map(x => ({ value: x.value })));
     return g.isGroup
-      ? `<div class="item tap" onclick="A.editGroup('${c.id}','${g.key}')"><div class="grow"><div class="ell"><b>${h(g.title)}</b></div><div class="sub">${h(g.kind)} · ${CAT[g.cat]} · ${fmtDate(g.date)} · ${g.items.length} Noten${+g.weight !== 1 ? ' · Gewicht ' + g.weight : ''}</div>${spiegel(g.items)}</div><span class="badge ${gc(avg)}">${f2(avg)}</span></div>`
+      ? `<div class="item tap" onclick="A.${db.measures.some(m => m.id === g.key) ? 'editMeasure' : 'editGroup'}('${c.id}','${g.key}')"><div class="grow"><div class="ell"><b>${h(g.title)}</b></div><div class="sub">${h(g.kind)} · ${CAT[g.cat]} · ${fmtDate(g.date)} · ${g.items.length} Noten${+g.weight !== 1 ? ' · Gewicht ' + g.weight : ''}</div>${spiegel(g.items)}</div><span class="badge ${gc(avg)}">${f2(avg)}</span></div>`
       : `<div class="item tap" onclick="A.editGrade('${g.items[0].id}')"><div class="grow"><div class="ell"><b>${h(nameOf(g.items[0].studentId))}</b>: ${h(g.title)}</div><div class="sub">Einzelnote · ${h(g.kind)} · ${CAT[g.cat]} · ${fmtDate(g.date)}</div></div><span class="badge ${gc(g.items[0].value)}">${h(g.items[0].label)}</span></div>`;
   }).join('');
   const ov = sts.map(s => { const st = stats(c, s.id); return `<tr class="tap" onclick="location.hash='#/s/${c.id}/${s.id}/noten'"><td>${h(s.last)}, ${h(s.first.split(' ')[0])}</td><td>${f2(st.big)}</td><td>${f2(st.small)}</td><td><span class="badge ${gc(st.total)}" style="min-width:0">${f2(st.total)}</span></td></tr>`; }).join('');
-  return `<div class="btns"><button class="btn pri" onclick="A.editGroup('${c.id}')">+ Leistungsnachweis (ganze Klasse)</button></div>
+  const meas = db.measures.filter(m => m.classId === c.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const measList = meas.map(m => { const nv = sts.filter(s => m.vals[s.id]).length, ng = db.grades.filter(g => g.groupId === m.id).length;
+    return `<div class="item tap" onclick="A.editMeasure('${c.id}','${m.id}')"><span aria-hidden="true">⏱</span><div class="grow"><div class="ell"><b>${h(m.title || 'Messung ohne Titel')}</b></div><div class="sub">${fmtDate(m.date)} · ${measTries(m)} ${measTries(m) === 1 ? 'Versuch' : 'Versuche'}${m.unit ? ' · ' + h(m.unit) : ''} · ${nv} von ${sts.length} gemessen</div></div><span class="tag" ${ng ? '' : 'style="color:var(--late);border-color:var(--late)"'}>${ng ? ng + ' Noten' : 'Noten offen'}</span></div>`; }).join('');
+  return `<div class="btns"><button class="btn pri" onclick="A.editGroup('${c.id}')">+ Leistungsnachweis (ganze Klasse)</button><button class="btn" onclick="A.editMeasure('${c.id}')">⏱ + Messung (Zeiten, Weiten)</button></div>
+    ${meas.length ? `<div class="sec">Messungen</div><div class="list">${measList}</div>` : ''}
     <div class="sec">Leistungsnachweise</div>
     ${groups.length ? `<div class="list">${list}</div>` : '<div class="card empty">Noch keine Noten. Lege einen Leistungsnachweis für die Klasse an oder trage Einzelnoten beim jeweiligen Schüler ein.</div>'}
     ${sts.length ? `<div class="sec">Notenübersicht</div><div class="card xscroll" style="padding:4px 10px"><table class="ov"><tr><th>Name</th><th>Schnitt groß</th><th>Schnitt klein</th><th>Gesamt</th></tr>${ov}</table>
@@ -1111,7 +1121,87 @@ document.addEventListener('keydown', e => {
     e.preventDefault(); const all = [...document.querySelectorAll('#mBody .gin')]; const i = all.indexOf(e.target);
     if (all[i + 1]) { all[i + 1].focus(); all[i + 1].select(); } else e.target.blur();
   }
+  // Messungen: Enter springt in derselben Spalte (gleicher Versuch) zum nächsten Schüler
+  if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('min')) {
+    e.preventDefault(); const all = [...document.querySelectorAll(`#measRows .min[data-col="${e.target.dataset.col}"]`)]; const i = all.indexOf(e.target);
+    if (all[i + 1]) { all[i + 1].focus(); all[i + 1].select(); } else e.target.blur();
+  }
 });
+/* ---------- Messungen: Zeiten, Weiten usw. mit mehreren Versuchen; die Note kann später nachgetragen werden ---------- */
+let measOpen = null;
+// Liest eine Zahl aus der Eingabe: „12,3“, „1:05,3“ oder (Zifferntastatur ohne Doppelpunkt) „1,05,3“ = 1 min 5,3 s.
+function measNum(s) {
+  s = String(s || '').trim(); if (!s) return null;
+  const p = s.split(/[:.,]/).map(x => x.replace(/\D/g, ''));
+  if (p.length > 3 || p.some(x => x === '')) return null;
+  if (s.includes(':') || p.length === 3) return +p[0] * 60 + parseFloat(p[1] + (p[2] != null ? '.' + p[2] : ''));
+  return parseFloat(p[0] + (p[1] != null ? '.' + p[1] : ''));
+}
+const measTries = m => Math.min(5, Math.max(1, +m.tries || 3));
+function measBest(m, sid) {
+  if (!m.better) return '';
+  const v = m.vals[sid] || {}; let best = null, raw = '';
+  for (let i = 1; i <= measTries(m); i++) { const n = measNum(v[i]); if (n == null) continue; if (best == null || (m.better === 'low' ? n < best : n > best)) { best = n; raw = v[i]; } }
+  return raw;
+}
+const measLine = (m, sid) => { const v = m.vals[sid] || {}; return Array.from({ length: measTries(m) }, (_, i) => v[i + 1] || '–').join(' / ') + (m.unit ? ' ' + m.unit : ''); };
+function measRows(c, m) {
+  const n = measTries(m);
+  return sortStudents(c.students).map(s => {
+    const v = m.vals[s.id] || {}, g = db.grades.find(x => x.groupId === m.id && x.studentId === s.id), best = measBest(m, s.id);
+    return `<div class="measrow ${isAway(s, m.date) ? 'away' : ''}"><div class="row"><span class="grow ell"><b>${h(s.last)}</b>, ${h(s.first)}</span><span class="sub" id="mb_${s.id}">${best ? 'Bestwert ' + h(best) : ''}</span></div>
+      <div class="row measin">${Array.from({ length: n }, (_, i) => `<input class="min" data-col="${i + 1}" data-sid="${s.id}" value="${h(v[i + 1] || '')}" placeholder="V${i + 1}" inputmode="decimal" autocomplete="off" enterkeyhint="next" onchange="A.measSave()" aria-label="Versuch ${i + 1}">`).join('')}<input class="min note" data-col="g" data-sid="${s.id}" value="${h(g ? g.label : '')}" placeholder="Note" autocomplete="off" autocapitalize="off" enterkeyhint="next" onchange="A.measSave()" aria-label="Note"></div></div>`;
+  }).join('');
+}
+A.editMeasure = (cid, mid) => {
+  const c = getClass(cid);
+  if (!c.students.length) return toast('Bitte zuerst Schüler anlegen.');
+  const m = (mid && db.measures.find(x => x.id === mid)) || { id: uid(), classId: cid, title: '', date: today(), unit: '', tries: 3, better: 'low', vals: {} };
+  const opt = (list, cur) => list.map(([v, l]) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${l}</option>`).join('');
+  openModal(mid ? 'Messung' : 'Neue Messung', `<label>Titel<input name="title" value="${h(m.title)}" placeholder="z. B. Sprint 50 m, 100 m Brust, Schlagballwurf" autocomplete="off" onchange="A.measSave()" ${mid ? '' : 'autofocus'}></label>
+    <div class="grid2"><label>Datum<input type="date" name="date" value="${m.date}" onchange="A.measSave()"></label>
+    <label>Einheit (optional)<input name="unit" value="${h(m.unit || '')}" placeholder="s, m, cm …" autocomplete="off" autocapitalize="off" onchange="A.measSave()"></label>
+    <label>Versuche<select name="tries" onchange="A.measSave(true)">${opt([1, 2, 3, 4, 5].map(n => [n, n]), measTries(m))}</select></label>
+    <label>Bestwert<select name="better" onchange="A.measSave(true)">${opt([['low', 'kleinster (Zeit)'], ['high', 'größter (Weite, Höhe)'], ['', 'nicht anzeigen']], m.better || '')}</select></label></div>
+    <p class="hint">Jede Eingabe wird sofort gespeichert. Enter springt zum nächsten Schüler im selben Versuch. Zeiten über einer Minute: 1:05,3 oder 1,05,3. Das Feld „Note“ kannst du leer lassen und später nachtragen; eingetragene Noten zählen als kleiner Leistungsnachweis mit dem Titel der Messung.</p>
+    <div id="measRows">${measRows(c, m)}</div>`, {
+    cancelLabel: 'Fertig',
+    onDelete: async () => {
+      const cur = db.measures.find(x => x.id === m.id); if (!cur) return;
+      const ng = db.grades.filter(g => g.groupId === m.id).length;
+      if (!await askConfirm(`Messung „${cur.title || 'ohne Titel'}“ mit allen eingetragenen Werten löschen?${ng ? ` Die ${ng} Noten dazu bleiben als Leistungsnachweis erhalten.` : ''}`, { ok: 'Löschen', danger: true })) return false;
+      removeUndo('measures', x => x.id === m.id, 'Messung gelöscht.');
+    }
+  });
+  measOpen = { m, cid };
+};
+A.measSave = rerender => {
+  if (!measOpen || !db) return;
+  const cid = measOpen.cid, c = getClass(cid), f = document.getElementById('mForm').elements;
+  const m = measOpen.m = db.measures.find(x => x.id === measOpen.m.id) || measOpen.m; // nach einem Cloud-Abgleich das aktuelle Objekt nehmen
+  m.title = f.title.value.trim(); m.date = f.date.value || m.date; m.unit = f.unit.value.trim(); m.tries = +f.tries.value || 3; m.better = f.better.value;
+  let bad = false;
+  document.querySelectorAll('#measRows .min').forEach(i => {
+    const sid = i.dataset.sid, col = i.dataset.col, v = i.value.trim();
+    if (col === 'g') {
+      const p = parseGrade(v); i.classList.toggle('invalid', p === false); if (p === false) { bad = true; return; }
+      const gi = db.grades.findIndex(x => x.groupId === m.id && x.studentId === sid);
+      if (!p) { if (gi >= 0) db.grades.splice(gi, 1); }
+      else if (gi >= 0) Object.assign(db.grades[gi], { value: p.value, label: p.label });
+      else db.grades.push({ id: uid(), classId: cid, studentId: sid, groupId: m.id, kind: c.type === 'sport' ? 'Praxisnote' : 'Sonstiges', cat: 'klein', weight: 1, value: p.value, label: p.label });
+      return;
+    }
+    const o = (m.vals[sid] ||= {}); if (v) o[col] = v; else delete o[col];
+    if (!Object.keys(o).length) delete m.vals[sid];
+  });
+  db.grades.forEach(g => { if (g.groupId === m.id) { g.title = m.title || 'Messung'; g.date = m.date; } });
+  if (!db.measures.includes(m)) { if (m.title || Object.keys(m.vals).length || db.grades.some(g => g.groupId === m.id)) db.measures.push(m); else return; }
+  persist();
+  if (rerender) document.getElementById('measRows').innerHTML = measRows(c, m);
+  else c.students.forEach(s => { const el = document.getElementById('mb_' + s.id), b = measBest(m, s.id); if (el) el.textContent = b ? 'Bestwert ' + b : ''; });
+  render();
+  if (bad) toast('Ungültige Note (rot markiert) wurde nicht gespeichert.');
+};
 A.editGrade = (gradeId, cid, sid) => {
   const dk = !gradeId && getClass(cid).type === 'sport' ? 'Praxisnote' : 'Abfrage';
   const g = gradeId ? db.grades.find(x => x.id === gradeId) : { classId: cid, studentId: sid, kind: dk, cat: 'klein', title: dk, date: today(), weight: 1, label: '' };
@@ -1162,6 +1252,7 @@ A.exportCsv = cid => {
   for (const x of db.contribs.filter(x => x.classId === c.id)) add(x, x.val === 'HA' ? 'Hausaufgabe' : x.val === 'MAT' ? 'Material' : 'Mitarbeit', x.val === 'HA' || x.val === 'MAT' ? 'fehlt' : UB_LABEL[x.val], x.note);
   for (const r of db.remarks.filter(x => x.classId === c.id)) add(r, r.tag === 'Verhalten' ? 'Verhalten' : 'Bemerkung (' + r.tag + ')', '', r.text);
   for (const g of db.grades.filter(x => x.classId === c.id)) add(g, 'Note: ' + g.title, g.label, g.comment);
+  for (const m of db.measures.filter(x => x.classId === c.id)) for (const sid in m.vals) add({ studentId: sid, date: m.date }, 'Messung: ' + (m.title || 'ohne Titel'), measLine(m, sid), measBest(m, sid) ? 'Bestwert ' + measBest(m, sid) : '');
   ent.sort((a, b) => a[0].localeCompare(b[0]) || (a[1] + a[2]).localeCompare(b[1] + b[2], 'de'));
   const part2 = [[], [`Alle Einträge nach Datum (${ent.length})`], ['Datum', 'Nachname', 'Vorname', 'Art', 'Wert', 'Bemerkung'], ...ent.map(e => [fmtDate(e[0]), ...e.slice(1)])];
   download(`Klassenbuch_${c.name}_${today()}.csv`.replace(/[\\/:*?"<>| ]/g, '_'), '﻿' + [head, ...rows, ...part2].map(r => r.map(q).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
@@ -1273,7 +1364,7 @@ A.deleteClass = async cid => {
   const ans = await askText(`Klasse ${c.name} mit ALLEN Schülern, Noten, Beiträgen, Bemerkungen und To-dos löschen? Zum Bestätigen den Klassennamen eintippen:`, { ok: 'Endgültig löschen', danger: true, placeholder: 'Klassenname' });
   if (ans == null || !db) return; if (ans.trim() !== c.name) return toast('Name stimmt nicht – nichts gelöscht.');
   db.classes = db.classes.filter(x => x.id !== cid);
-  for (const k of ['grades', 'contribs', 'remarks', 'attendance']) db[k] = db[k].filter(x => x.classId !== cid);
+  for (const k of ['grades', 'contribs', 'remarks', 'attendance', 'measures']) db[k] = db[k].filter(x => x.classId !== cid);
   persist(); location.hash = '#/';
 };
 
@@ -1343,6 +1434,7 @@ function renderStudent(c, sid, view) {
     app.innerHTML = head + `<main>${sw}
     <div class="card"><div class="stats"><div><div class="v">${f2(st.total)}</div><div class="l">Gesamt</div></div><div><div class="v">${f2(st.big)}</div><div class="l">Schnitt groß</div></div><div><div class="v">${f2(st.small)}</div><div class="l">Schnitt klein</div></div></div></div>
     ${grades.length ? `<div class="list">${grades.map(g => `<div class="item tap" onclick="A.editGrade('${g.id}')"><span class="badge ${gc(g.value)}">${h(g.label)}</span><div class="grow"><div class="ell">${h(g.title)}</div><div class="sub">${h(g.kind)} · ${CAT[g.cat]} · ${fmtDate(g.date)}${+g.weight !== 1 ? ' · Gewicht ' + g.weight : ''}${g.comment ? ' · ' + h(g.comment) : ''}</div></div></div>`).join('')}</div>` : '<div class="card empty">Noch keine Noten.</div>'}
+    ${(ms => ms.length ? `<div class="sec">Messungen</div><div class="list">${ms.map(m => `<div class="item tap" style="min-height:48px" onclick="A.editMeasure('${c.id}','${m.id}')"><span aria-hidden="true">⏱</span><div class="grow"><div class="ell">${h(m.title || 'Messung')}</div><div class="sub">${fmtDate(m.date)} · ${h(measLine(m, sid))}${measBest(m, sid) ? ' · Bestwert ' + h(measBest(m, sid)) : ''}</div></div></div>`).join('')}</div>` : '')(db.measures.filter(m => m.classId === c.id && m.vals[sid]).sort((a, b) => (b.date || '').localeCompare(a.date || '')))}
     <button class="btn block" onclick="A.editGrade(null,'${c.id}','${sid}')">+ Einzelnote (z. B. ${c.type === 'sport' ? 'Praxisnote' : 'Abfrage, Referat'})</button>
     ${nav}</main>`;
     return;
@@ -1596,6 +1688,7 @@ function mergeDb(base, loc, rem) {
   // Einträge zu gelöschten Klassen oder Schülern entfernen, doppelte Anwesenheit (gleicher Schüler, gleicher Tag) auflösen.
   const cls = new Map(m.classes.map(c => [c.id, new Set(c.students.map(s => s.id))]));
   for (const k of ['grades', 'contribs', 'remarks', 'attendance']) m[k] = m[k].filter(x => cls.has(x.classId) && (!x.studentId || cls.get(x.classId).has(x.studentId)));
+  m.measures = m.measures.filter(x => cls.has(x.classId));
   const seen = new Map();
   for (const a of m.attendance) { const k = a.classId + '|' + a.studentId + '|' + a.date; if (!seen.has(k) || !preferLoc) seen.set(k, a); }
   m.attendance = [...seen.values()];
