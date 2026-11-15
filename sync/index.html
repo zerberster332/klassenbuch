@@ -12,9 +12,27 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Klassenbuch">
 <title>Klassenbuch Sync</title>
+<script>
+/* Darstellung (hell/dunkel/automatisch): pro Gerät gespeichert, gilt schon auf dem Sperrbildschirm. */
+function applyTheme() {
+  var t = null; try { t = localStorage.getItem('klassenbuch_theme'); } catch (e) {}
+  var r = document.documentElement;
+  if (t === 'light' || t === 'dark') r.setAttribute('data-theme', t); else r.removeAttribute('data-theme');
+  var dark = t === 'dark' || (t !== 'light' && window.matchMedia && matchMedia('(prefers-color-scheme:dark)').matches);
+  var m = document.querySelector('meta[name=theme-color]'); if (m) m.content = dark ? '#5b9be6' : '#1f5fa8';
+}
+applyTheme();
+if (window.matchMedia) try { matchMedia('(prefers-color-scheme:dark)').addEventListener('change', applyTheme); } catch (e) {}
+</script>
 <style>
-:root{--bg:#f4f6f9;--card:#fff;--fg:#1c2430;--muted:#667085;--line:#e3e7ee;--pri:#1f5fa8;--pri-fg:#fff;--ok:#1a7f37;--bad:#c62828;--warn:#9a5c00;--chip:#eef2f7}
-@media (prefers-color-scheme:dark){:root{--bg:#12161c;--card:#1b2129;--fg:#e6e9ee;--muted:#9aa4b2;--line:#2b333e;--pri:#5b9be6;--pri-fg:#0b1220;--ok:#4cc26b;--bad:#ef6b6b;--warn:#e0a34a;--chip:#252d38}}
+/* Statusfarben: fehlt = rot (--bad), krank = --sick, zu spät = --late, HA = --ha, Verhalten = --vh, passiv = --amber, befreit = --teal */
+:root{--bg:#f4f6f9;--card:#fff;--fg:#1c2430;--muted:#667085;--line:#e3e7ee;--pri:#1f5fa8;--pri-fg:#fff;--ok:#1a7f37;--bad:#c62828;--warn:#9a5c00;--chip:#eef2f7;
+  --late:#d9580b;--ha:#2563eb;--sick:#b0307a;--vh:#6d4fc7;--amber:#a16207;--teal:#0f766e;--on:#fff;--toast-bg:#222;--toast-fg:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#12161c;--card:#1b2129;--fg:#e6e9ee;--muted:#9aa4b2;--line:#2b333e;--pri:#5b9be6;--pri-fg:#0b1220;--ok:#4cc26b;--bad:#ef6b6b;--warn:#e0a34a;--chip:#252d38;
+  --late:#ff9a4d;--ha:#6ea8ff;--sick:#f07fbe;--vh:#b09cf5;--amber:#e6b84a;--teal:#4fd1c0;--on:#0b1220;--toast-bg:#e6e9ee;--toast-fg:#12161c}}
+:root[data-theme=dark]{--bg:#12161c;--card:#1b2129;--fg:#e6e9ee;--muted:#9aa4b2;--line:#2b333e;--pri:#5b9be6;--pri-fg:#0b1220;--ok:#4cc26b;--bad:#ef6b6b;--warn:#e0a34a;--chip:#252d38;
+  --late:#ff9a4d;--ha:#6ea8ff;--sick:#f07fbe;--vh:#b09cf5;--amber:#e6b84a;--teal:#4fd1c0;--on:#0b1220;--toast-bg:#e6e9ee;--toast-fg:#12161c}
+:root{color-scheme:light dark}:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
 header.top{position:sticky;top:0;z-index:5;background:var(--pri);color:var(--pri-fg);display:flex;align-items:center;gap:2px;padding:calc(env(safe-area-inset-top) + 6px) 6px 6px}
@@ -69,18 +87,20 @@ nav.tabs a.on{color:var(--pri);font-weight:700}
 #mBody{overflow:auto;padding:12px 16px;flex:1}
 .sheet-foot{display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
 .sheet-foot .sp{flex:1}
-.mbtn{min-width:40px;height:42px;padding:0;border-radius:12px;border:0;font-size:20px;font-weight:800;cursor:pointer;flex:none;font-family:inherit}
+.mbtn{min-width:44px;height:46px;padding:0;border-radius:12px;border:0;font-size:20px;font-weight:800;cursor:pointer;flex:none;font-family:inherit}
 .mbtn:disabled{opacity:.3}
 .mbtn.plus{background:rgba(26,127,55,.2);color:var(--ok)}
 .mbtn.minus{background:rgba(210,40,40,.18);color:var(--bad)}
-.mbtn.ha{background:rgba(210,140,0,.2);color:var(--warn);font-size:13px}
+.mbtn.ha{background:color-mix(in srgb,var(--ha) 20%,transparent);color:var(--ha);font-size:13px}
 .mbtn.undo{background:var(--chip);color:var(--muted);font-size:18px}
 .mbtn.abs{background:var(--chip);color:var(--muted);font-size:12px}
-.mbtn.abs.on{background:var(--bad);color:#fff}
+.mbtn.abs.on{background:var(--bad);color:var(--on)}
 .tag.abs{color:var(--bad);border-color:var(--bad)}
-.tag.late{color:var(--warn);border-color:var(--warn)}
+.tag.late{color:var(--late);border-color:var(--late)}
+.tag.sick{color:var(--sick);border-color:var(--sick)}
 .chip{display:inline-block;padding:1px 7px;border-radius:999px;background:var(--chip);font-size:12px;margin:1px 4px 1px 0}
-.pl{color:var(--ok);font-weight:600}.mi{color:var(--bad);font-weight:600}.hw{color:var(--warn);font-weight:600}
+.pl{color:var(--ok);font-weight:600}.mi{color:var(--bad);font-weight:600}.hw{color:var(--ha);font-weight:600}
+.lt{color:var(--late);font-weight:600}.pv{color:var(--amber);font-weight:600}.sk{color:var(--sick);font-weight:600}.ex{color:var(--teal);font-weight:600}
 .gi-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line)}
 .gi-row span{flex:1;min-width:0}
 .gi-row input{width:76px;text-align:center;margin:0;flex:none}
@@ -101,56 +121,70 @@ details summary{cursor:pointer;color:var(--muted);padding:8px 4px;font-weight:60
 .remark{white-space:pre-wrap}
 .spiegel{display:flex;gap:3px;margin-top:3px}
 .spiegel span{font-size:11px;background:var(--chip);border-radius:6px;padding:0 5px}
-#toast{position:fixed;left:50%;bottom:calc(80px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:12px;z-index:30;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
-#toast.show{opacity:.95}
+#toast{position:fixed;left:50%;bottom:calc(80px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--toast-bg);color:var(--toast-fg);padding:10px 16px;border-radius:12px;z-index:30;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;display:flex;align-items:center;gap:12px;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+#toast.show{opacity:.97}
+#toast.show.act{pointer-events:auto}
+#toast button{border:0;background:none;color:inherit;font:inherit;font-weight:800;text-decoration:underline;padding:8px 4px;margin:-8px 0;cursor:pointer;white-space:nowrap}
 .navstud{display:flex;gap:8px}.navstud .btn{flex:1}
-.mbtn.mat{background:rgba(120,90,200,.2);color:#7a5bd0;font-size:12px}
-.mat-c{color:#7a5bd0;font-weight:600}
+.mbtn.mat{background:color-mix(in srgb,var(--vh) 20%,transparent);color:var(--vh);font-size:12px}
+.mat-c{color:var(--vh);font-weight:600}
 .seg{display:inline-flex;border-radius:10px;overflow:hidden;border:1px solid var(--line);flex:none}
 .seg button{border:0;background:var(--card);color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:0 10px;height:40px;cursor:pointer}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button.on{background:var(--pri);color:var(--pri-fg)}
 .seg button.on.aktiv{background:rgba(26,127,55,.28);color:var(--ok)}
-.seg button.on.passiv{background:rgba(210,140,0,.28);color:var(--warn)}
+.seg button.on.passiv{background:color-mix(in srgb,var(--amber) 28%,transparent);color:var(--amber)}
+.seg button.on.krank{background:color-mix(in srgb,var(--sick) 26%,transparent);color:var(--sick)}
+.seg button.on.verspaetet{background:color-mix(in srgb,var(--late) 26%,transparent);color:var(--late)}
+.seg button.on.da{background:rgba(26,127,55,.28);color:var(--ok)}
 .seg button.on.fehlt{background:rgba(210,40,40,.24);color:var(--bad)}
 .full-seg{display:flex;width:100%;margin-bottom:12px}.full-seg button{flex:1;height:42px;font-size:15px}
-.wrapitem{flex-wrap:wrap;row-gap:6px}.nm{flex-basis:100%}
-.kitbtn{height:40px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:0 10px;flex:1;cursor:pointer}
+.wrapitem{flex-wrap:wrap;row-gap:6px}.nm{flex-basis:100%;min-width:0;overflow-wrap:anywhere}
+.kitbtn{height:44px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:0 10px;flex:1;cursor:pointer}
 .kitbtn.dabei{color:var(--ok);background:rgba(26,127,55,.15)}
 .kitbtn.vergessen{color:var(--bad);background:rgba(210,40,40,.15)}
 td.hot{color:var(--bad);font-weight:800}
 .item.mrow{gap:5px;padding-right:8px}
-.mrow .mbtn{min-width:36px}
+.xscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.xscroll table.ov td:first-child,.xscroll table.ov th:first-child{position:sticky;left:0;background:var(--card);white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;padding-right:8px}
+.dlg{max-width:420px;width:calc(100% - 32px);border-radius:16px!important;padding:16px 16px 4px}
+.dlg p{margin:0 0 12px;white-space:pre-wrap}
+.dlg .sheet-foot{border:0;padding:8px 0 12px}
 .mbtn.strong.plus{background:rgba(26,127,55,.45)}
 .mbtn.strong.minus{background:rgba(210,40,40,.42)}
 .ubrow{display:flex;gap:6px;flex-basis:100%}.ubrow .mbtn{flex:1}
 .away{opacity:.55;background:var(--chip)}
 .tag{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:6px;padding:0 6px;font-size:12px;color:var(--muted);font-weight:600}
-.seg button.on.befreit{background:var(--chip);color:var(--fg)}
+.seg button.on.befreit{background:color-mix(in srgb,var(--teal) 24%,transparent);color:var(--teal)}
 .namegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.namegrid button{border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:10px;min-height:46px;padding:6px 8px;font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.namegrid button{border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:10px;min-height:46px;padding:6px 8px;font:inherit;font-size:14px;text-align:left;cursor:pointer;min-width:0;overflow-wrap:anywhere}
 .namegrid button.ok{background:rgba(26,127,55,.3);border-color:var(--ok);font-weight:700}
 .namegrid button.ok::before{content:"✓ "}
 .bar{height:8px;border-radius:4px;background:var(--chip);overflow:hidden;margin-top:6px}.bar>i{display:block;height:100%;background:var(--ok)}
-.mbtn.vh{background:rgba(120,90,200,.2);color:#7a5bd0;font-size:14px}
-.kitbtn.on.abs{background:var(--bad);border-color:var(--bad);color:#fff}
-.kitbtn.on.late,.kitbtn.on.ha{background:var(--warn);border-color:var(--warn);color:#fff}
+.mbtn.vh{background:color-mix(in srgb,var(--vh) 20%,transparent);color:var(--vh);font-size:14px}
+.kitbtn.late{color:var(--late)}.kitbtn.abs{color:var(--bad)}.kitbtn.ha{color:var(--ha)}
+.kitbtn.on.abs{background:var(--bad);border-color:var(--bad);color:var(--on)}
+.kitbtn.on.late{background:var(--late);border-color:var(--late);color:var(--on)}
+.kitbtn.on.ha{background:var(--ha);border-color:var(--ha);color:var(--on)}
 .attrow .kitbtn{min-width:0;padding:0 6px}.attrow .mbtn.undo{flex:0 0 46px}
 .vhchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.vhchips .kitbtn{flex:1 1 auto;color:var(--fg)}
-.tag.mat-c{color:#7a5bd0;border-color:#7a5bd0}
-.vhchips .kitbtn.on{background:rgba(120,90,200,.25);border-color:#7a5bd0}
+.tag.mat-c{color:var(--vh);border-color:var(--vh)}
+.vhchips .kitbtn.on{background:color-mix(in srgb,var(--vh) 25%,transparent);border-color:var(--vh)}
 .fab{position:fixed;right:14px;bottom:calc(76px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;border:0;background:var(--pri);color:var(--pri-fg);font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.35);z-index:6;cursor:pointer}
 </style>
 </head>
 <body>
 <div id="app"></div>
-<div id="modal" class="modal hidden" onclick="if(event.target===this)A.closeModal()">
+<div id="modal" class="modal hidden" onclick="if(event.target===this)A.backdrop()">
   <div class="sheet" role="dialog" aria-modal="true">
     <div class="sheet-head"><h2 id="mTitle"></h2><button type="button" class="icon" onclick="A.closeModal()" aria-label="Schließen">✕</button></div>
     <form id="mForm" novalidate><div id="mBody"></div><div class="sheet-foot" id="mFoot"></div></form>
   </div>
 </div>
-<div id="toast"></div>
+<div id="dlg" class="modal hidden" style="z-index:25;align-items:center">
+  <form class="sheet dlg" role="alertdialog" aria-modal="true" id="dlgForm" novalidate><div id="dlgBody"></div><div class="sheet-foot" id="dlgFoot"></div></form>
+</div>
+<div id="toast" role="status"></div>
 <script>/**
  * @licstart The following is the entire license notice for the
  * JavaScript code in this page
@@ -211,7 +245,34 @@ const gc = v => v == null ? '' : 'g' + Math.min(6, Math.max(1, Math.round(v)));
 const enc = new TextEncoder(), dec = new TextDecoder();
 function b64(buf) { const a = new Uint8Array(buf); let s = ''; for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s); }
 function unb64(s) { const b = atob(s); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
-function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
+// Kurze Meldung unten. Mit undo (Funktion) erscheint ein Knopf „Rückgängig“ und die Meldung bleibt länger stehen.
+function toast(msg, undo) {
+  const t = document.getElementById('toast'); t.textContent = msg; toast._at = Date.now();
+  t.classList.toggle('act', !!undo);
+  if (undo) { const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Rückgängig'; b.onclick = () => { t.classList.remove('show', 'act'); undo(); }; t.appendChild(b); }
+  t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show', 'act'), undo ? 7000 : 2200);
+}
+// Löschen mit „Rückgängig“: restore() stellt den alten Zustand wieder her (wird nur ausgeführt, solange entsperrt ist).
+function undoable(msg, restore) {
+  toast(msg, () => { if (!db) return; restore(); persist(); refreshUb(); refreshDay(); render(); toast('Wiederhergestellt.'); });
+}
+/* Eigene Dialoge statt der Browser-Abfragen. askConfirm → true/false, askText → Text oder null, tell → nur Hinweis. */
+let dlgDone = null;
+function dialog(text, o = {}) {
+  return new Promise(res => {
+    if (dlgDone) dlgDone(o.input ? null : false);
+    const el = document.getElementById('dlg');
+    document.getElementById('dlgBody').innerHTML = `<p>${h(text)}</p>` + (o.input ? `<input name="v" autocomplete="off" autocapitalize="off" placeholder="${h(o.placeholder || '')}">` : '');
+    document.getElementById('dlgFoot').innerHTML = `<span class="sp"></span>` + (o.info ? '' : `<button type="button" class="btn" onclick="dlgDone(${o.input ? 'null' : 'false'})">Abbrechen</button>`) +
+      `<button type="submit" class="btn ${o.danger ? 'danger' : 'pri'}">${h(o.ok || 'OK')}</button>`;
+    dlgDone = v => { dlgDone = null; el.classList.add('hidden'); res(v); };
+    el.classList.remove('hidden');
+    setTimeout(() => { const f = el.querySelector(o.input ? 'input' : 'button[type=submit]'); if (f) f.focus(); }, 50);
+  });
+}
+const askConfirm = (text, o) => dialog(text, o);
+const askText = (text, o) => dialog(text, Object.assign({ input: true }, o));
+const tell = text => dialog(text, { info: true });
 function schoolYear() { const d = new Date(), y = d.getFullYear(); return d.getMonth() >= 7 ? `${y}/${pad((y + 1) % 100)}` : `${y - 1}/${pad(y % 100)}`; }
 function download(name, text, type) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
@@ -263,7 +324,7 @@ function persist(noMark) {
   if (!db || !Vault.key) return;
   if (!noMark) db.settings.lastChange = Date.now();
   const snap = JSON.parse(JSON.stringify(db));
-  saving = saving.then(() => Vault.save(snap)).catch(e => { console.error(e); alert('Speichern fehlgeschlagen: ' + e.message); });
+  saving = saving.then(() => Vault.save(snap)).catch(e => { console.error(e); tell('Speichern fehlgeschlagen: ' + e.message); });
   if (!noMark) syncSchedule();
 }
 function normalize(d) {
@@ -304,7 +365,7 @@ function stats(c, sid) {
   return { big, small, total, n: gs.length, plus2: n('++'), plus: n('+'), minus: n('-'), minus2: n('--'), ha: n('HA'), mat: n('MAT'), vh,
     aktiv: a('aktiv'), passiv: a('passiv'), fehlt: a('fehlt'), befreit: a('befreit'), verspaetet: a('verspaetet'), vergessen: at.filter(x => x.kit === 'vergessen').length };
 }
-const attChips = st => [st.passiv ? `<span class="hw">passiv ${st.passiv}</span>` : '', st.fehlt ? `<span class="mi">fehlt ${st.fehlt}</span>` : '', st.vergessen ? `<span class="mi">👕✗ ${st.vergessen}</span>` : '', st.befreit ? `<span class="sub">befreit ${st.befreit}</span>` : ''].filter(Boolean).join(' &nbsp;');
+const attChips = st => [st.passiv ? `<span class="pv">passiv ${st.passiv}</span>` : '', st.fehlt ? `<span class="mi">fehlt ${st.fehlt}</span>` : '', st.vergessen ? `<span class="mi">👕✗ ${st.vergessen}</span>` : '', st.befreit ? `<span class="ex">befreit ${st.befreit}</span>` : ''].filter(Boolean).join(' &nbsp;');
 /* Beiträge: ++ sehr gut, + gut, − schwach, −− sehr schwach. HA (Hausaufgabe fehlt) wird im Tab „Schüler“ als Umschalter
    für heute eingetragen; alte HA- und MAT-Einträge werden weiter angezeigt (UB_LABEL/UB_CLASS). */
 const UB_VALS = ['++', '+', '-', '--'];
@@ -350,15 +411,31 @@ function openModal(title, body, opts = {}) {
 }
 let ubOpen = null, dayOpen = null;
 A.closeModal = () => { document.getElementById('modal').classList.add('hidden'); document.getElementById('mBody').innerHTML = ''; modalCfg = null; ubOpen = null; dayOpen = null; };
-A.modalDelete = async () => { if (modalCfg && modalCfg.onDelete && (await modalCfg.onDelete()) !== false) { A.closeModal(); render(); } };
+// Tipp neben das Fenster: schließt nur Fenster ohne „Speichern“, damit halb ausgefüllte Eingaben nicht verloren gehen.
+A.backdrop = () => { if (!modalCfg || !modalCfg.onSave) A.closeModal(); };
+A.modalDelete = async () => { const cfg = modalCfg; if (cfg && cfg.onDelete && (await cfg.onDelete()) !== false && modalCfg === cfg) { A.closeModal(); render(); } };
 document.getElementById('mForm').addEventListener('submit', async e => {
   e.preventDefault();
-  if (!modalCfg || !modalCfg.onSave) return;
-  const r = await modalCfg.onSave(e.target.elements);
-  if (r !== false) { A.closeModal(); render(); }
+  const cfg = modalCfg;
+  if (!cfg || !cfg.onSave) return;
+  const t0 = Date.now(), r = await cfg.onSave(e.target.elements);
+  if (r !== false) {
+    if (modalCfg === cfg) A.closeModal();
+    render();
+    if (!cfg.silent && !(toast._at >= t0)) toast('Gespeichert.'); // einheitliche Rückmeldung, falls onSave nichts gemeldet hat
+  }
+});
+document.getElementById('dlgForm').addEventListener('submit', e => {
+  e.preventDefault(); if (!dlgDone) return;
+  const i = e.target.elements.v; dlgDone(i ? i.value : true);
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (dlgDone) dlgDone(document.querySelector('#dlgBody input') ? null : false);
+  else if (!document.getElementById('modal').classList.contains('hidden')) A.closeModal();
 });
 function askPassword(title) {
-  return new Promise(res => openModal(title, `<label>Passwort<input type="password" name="pw" autofocus autocomplete="current-password"></label>`, { saveLabel: 'OK', onSave: f => { res(f.pw.value); } }));
+  return new Promise(res => openModal(title, `<label>Passwort<input type="password" name="pw" autofocus autocomplete="current-password"></label>`, { saveLabel: 'OK', silent: true, onSave: f => { res(f.pw.value); } }));
 }
 
 /* ================= Sperrbildschirm ================= */
@@ -398,7 +475,7 @@ A.unlock = async e => {
 A.lock = async () => {
   // Vor dem Sperren noch offene Änderungen in die Cloud bringen (höchstens 5 Sekunden warten).
   if (db && db.settings.sync && syncDirty()) await Promise.race([autoSync(), new Promise(r => setTimeout(r, 5000))]);
-  clearTimeout(syncTimer); await saving; db = null; Vault.key = null; Vault.salt = null; A.closeModal(); renderLock();
+  clearTimeout(syncTimer); await saving; db = null; Vault.key = null; Vault.salt = null; if (dlgDone) dlgDone(null); A.closeModal(); renderLock();
 };
 let lastAct = Date.now();
 ['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => { lastAct = Date.now(); }, true));
@@ -469,11 +546,12 @@ function tabsFor(c) { return [['schueler', '👥', 'Schüler'], c.type === 'spor
 function renderClass(c, tab) {
   TABS = tabsFor(c);
   if (!TABS.some(t => t[0] === tab)) tab = 'schueler';
+  ui.tab = { cid: c.id, tab }; // für den Zurück-Knopf der Schülerseite
   const body = { schueler: tabStudents, mitarbeit: tabContrib, noten: tabGrades, todos: tabTodos, mehr: tabMore }[tab](c);
   const open = c.todos.filter(t => !t.done).length;
   const fab = c.type !== 'sport' && tab !== 'mitarbeit' && c.students.length ? `<button class="fab" onclick="A.ubClass('${c.id}')" aria-label="Beiträge eintragen" title="Beiträge eintragen">✋</button>` : '';
   app.innerHTML = header(c.name + (c.subject ? ' · ' + c.subject : ''), '#/', [['🔒', 'A.lock()', 'Sperren']]) + `<main>${body}</main>` + fab +
-    `<nav class="tabs">${TABS.map(([k, i, l]) => `<a href="#/c/${c.id}/${k}" class="${k === tab ? 'on' : ''}"><span class="ti">${i}</span>${l}${k === 'todos' && open ? ` (${open})` : ''}</a>`).join('')}</nav>`;
+    `<nav class="tabs">${TABS.map(([k, i, l]) => `<a href="#/c/${c.id}/${k}" class="${k === tab ? 'on' : ''}" ${k === tab ? 'aria-current="page"' : ''}><span class="ti" aria-hidden="true">${i}</span>${l}${k === 'todos' && open ? ` (${open})` : ''}</a>`).join('')}</nav>`;
 }
 function tabStudents(c) {
   const sts = sortStudents(c.students);
@@ -525,8 +603,8 @@ A.editStudent = (cid, sid) => {
       if (f.exempt) { if (f.exempt.checked) s.exempt = { from: ex.from || today(), until: f.exemptUntil.value || null, note: f.exemptNote.value.trim() }; else delete s.exempt; }
       persist();
     },
-    onDelete: () => {
-      if (!confirm(`${s.first} ${s.last} mit allen Noten, Beiträgen und Bemerkungen löschen?`)) return false;
+    onDelete: async () => {
+      if (!await askConfirm(`${s.first} ${s.last} mit allen Noten, Beiträgen und Bemerkungen löschen?`, { ok: 'Löschen', danger: true })) return false;
       c.students = c.students.filter(x => x.id !== sid);
       for (const k of ['grades', 'contribs', 'remarks', 'attendance']) db[k] = db[k].filter(x => x.studentId !== sid);
       persist(); location.hash = '#/c/' + cid;
@@ -644,7 +722,7 @@ function strichliste(c) {
   const lessons = sport ? new Set(src.map(a => a.date)).size : null;
   return `<div class="card"><label style="margin:0">Zählen ab<input type="date" value="${since}" onchange="A.setSince(this.value)"></label>
     <p class="hint" style="margin-bottom:0">${sport ? `${lessons} erfasste Sportstunden seit ${fmtDate(since)}. ` : 'spät = zu spät · HA = Hausaufgabe fehlt · VH = Einträge zum Verhalten. '}Ab 3 Strichen rot markiert. Tippe auf einen Namen für Details.</p></div>
-    <div class="card" style="padding:4px 10px"><table class="ov"><tr><th>Name</th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>${rows}</table></div>`;
+    <div class="card xscroll" style="padding:4px 10px"><table class="ov"><tr><th>Name</th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>${rows}</table></div>`;
 }
 function sportDay(c) {
   const d = ui.mDate || today();
@@ -660,7 +738,7 @@ function sportDay(c) {
       <button class="kitbtn ${r && r.kit || ''}" onclick="A.att('${c.id}','${s.id}','kit')">${r && r.kit === 'vergessen' ? '👕 vergessen' : r && r.kit === 'dabei' ? '👕 dabei' : '👕 ?'}</button></div>`; }).join('');
   return `<div class="card"><label style="margin:0">Datum<input type="date" value="${d}" onchange="A.setMDate(this.value)"></label>
     <button class="btn pri block mt" onclick="A.attAll('${c.id}')">Alle übrigen: aktiv + Sportzeug dabei</button>
-    <p class="hint" style="margin-bottom:0"><span class="pl">aktiv ${cnt('aktiv')}</span> · <span class="hw">passiv ${cnt('passiv')}</span> · <span class="mi">fehlt ${cnt('fehlt')}</span>${cnt('befreit') ? ` · befreit ${cnt('befreit')}` : ''} · 👕 vergessen ${verg}${offen ? ` · <b>${offen} noch offen</b>` : ''}<br>Tipp: Erst „Alle übrigen“ tippen, dann nur die Ausnahmen ändern. Schüler mit Sportbefreiung werden dabei als „befreit“ eingetragen. „Sportzeug vergessen“ setzt automatisch auf passiv. Name antippen für eine Notiz.</p></div>
+    <p class="hint" style="margin-bottom:0"><span class="pl">aktiv ${cnt('aktiv')}</span> · <span class="pv">passiv ${cnt('passiv')}</span> ·<span class="mi">fehlt ${cnt('fehlt')}</span>${cnt('befreit') ? ` · befreit ${cnt('befreit')}` : ''} · 👕 vergessen ${verg}${offen ? ` · <b>${offen} noch offen</b>` : ''}<br>Tipp: Erst „Alle übrigen“ tippen, dann nur die Ausnahmen ändern. Schüler mit Sportbefreiung werden dabei als „befreit“ eingetragen. „Sportzeug vergessen“ setzt automatisch auf passiv. Name antippen für eine Notiz.</p></div>
     <div class="list">${rows}</div>`;
 }
 function attRec(cid, sid, d) {
@@ -710,24 +788,24 @@ const wdShort = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { wee
 const attOf = (sid, d) => db.attendance.find(a => a.studentId === sid && a.date === d);
 const absBadges = (s, d, last) => {
   const r = attOf(s.id, d), l = last && attOf(s.id, last), when = d === today() ? 'heute' : 'am ' + fmtShort(d);
-  return (r && r.status === 'fehlt' ? ` <span class="tag abs">${r.reason === 'krank' ? 'krank' : 'fehlt'} ${when}</span>` : '') +
-    (r && r.status === 'verspaetet' ? ` <span class="tag late">verspätet ${when}</span>` : '') +
-    (l && l.status === 'fehlt' ? ` <span class="tag abs">${l.reason === 'krank' ? 'krank' : 'fehlte'} ${wdShort(last)} ${fmtShort(last)}</span>` : '');
+  return (r && r.status === 'fehlt' ? ` <span class="tag ${r.reason === 'krank' ? 'sick' : 'abs'}">${r.reason === 'krank' ? 'krank' : 'fehlt'} ${when}</span>` : '') +
+    (r && r.status === 'verspaetet' ? ` <span class="tag late">zu spät ${when}</span>` : '') +
+    (l && l.status === 'fehlt' ? ` <span class="tag ${l.reason === 'krank' ? 'sick' : 'abs'}">${l.reason === 'krank' ? 'krank' : 'fehlte'} ${wdShort(last)} ${fmtShort(last)}</span>` : '');
 };
 A.absent = (cid, sid) => {
   const r = attRec(cid, sid, ui.mDate || today());
   r.status = r.status === 'fehlt' ? null : 'fehlt'; delete r.reason;
   attCleanup(); persist(); render();
 };
-// ✎ bei der Anwesenheit: da / krank / fehlt / verspätet und eine Notiz, für heute oder einen anderen Tag.
+// ✎ bei der Anwesenheit: da / krank / fehlt / zu spät und eine Notiz, für heute oder einen anderen Tag.
 A.absSheet = (cid, sid, d) => {
   d = d || ui.mDate || today();
   const s = getClass(cid).students.find(x => x.id === sid), r = attOf(sid, d);
   const cur = !r || !r.status ? '' : r.status === 'fehlt' ? (r.reason === 'krank' ? 'krank' : 'fehlt') : r.status;
   openModal(`${s.first} ${s.last} · ${fmtDate(d)}`, `<label>Datum<input type="date" name="adate" value="${d}" onchange="A.absSheet('${cid}','${sid}',this.value)"></label>
-    <div class="seg full-seg">${[['', 'da'], ['krank', 'krank'], ['fehlt', 'fehlt'], ['verspaetet', 'verspätet']].map(([k, l]) => `<button type="button" class="${cur === k ? 'on' : ''}" onclick="A.absSet('${cid}','${sid}','${k}')">${l}</button>`).join('')}</div>
+    <div class="seg full-seg">${[['', 'da'], ['krank', 'krank'], ['fehlt', 'fehlt'], ['verspaetet', 'zu spät']].map(([k, l]) => `<button type="button" class="${cur === k ? 'on ' + (k || 'da') : ''}" aria-pressed="${cur === k}" onclick="A.absSet('${cid}','${sid}','${k}')">${l}</button>`).join('')}</div>
     <label>Notiz für diesen Tag (optional)<input name="note" value="${h(r ? r.note || '' : '')}" placeholder="z. B. 10 Minuten zu spät, Arzttermin"></label>
-    <p class="hint">Ein Tipp auf „da“, „krank“, „fehlt“ oder „verspätet“ speichert sofort, samt Notiz.</p>`, {
+    <p class="hint">Ein Tipp auf „da“, „krank“, „fehlt“ oder „zu spät“ speichert sofort, samt Notiz.</p>`, {
     saveLabel: 'Nur Notiz speichern',
     onSave: f => { const x = attRec(cid, sid, f.adate.value || d); x.note = f.note.value.trim(); attCleanup(); persist(); }
   });
@@ -750,7 +828,7 @@ function attButtons(c, s) {
     b(ha, 'ha', `A.haToggle('${c.id}','${s.id}')`, 'HA', 'Hausaufgabe fehlt heute') +
     `<button type="button" class="mbtn undo" onclick="A.absSheet('${c.id}','${s.id}','${today()}')" aria-label="Anwesenheit bearbeiten: krank, Notiz oder anderer Tag">✎</button>`;
 }
-const attSummary = st => [['gefehlt', st.fehlt, 'mi'], ['zu spät', st.verspaetet, 'hw'], ['HA', st.ha, 'hw']].filter(x => x[1]).map(([l, n, cls]) => `<span class="${cls}">${l} ${n}</span>`).join(' · ');
+const attSummary = st => [['gefehlt', st.fehlt, 'mi'], ['zu spät', st.verspaetet, 'lt'], ['HA', st.ha, 'hw']].filter(x => x[1]).map(([l, n, cls]) => `<span class="${cls}">${l} ${n}</span>`).join(' · ');
 A.attToggle = (cid, sid, k) => {
   const r = attRec(cid, sid, today());
   r.status = r.status === k ? null : k; delete r.reason;
@@ -822,10 +900,16 @@ A.ub = (cid, sid) => {
 A.ubClass = cid => { openModal('Beiträge eintragen', '', { cancelLabel: 'Fertig' }); ubOpen = { cid, sid: null, date: today() }; refreshUb(); };
 A.ubDate = v => { ubOpen.date = v || today(); refreshUb(); };
 A.ubAdd = (val, sid) => { db.contribs.push({ id: uid(), classId: ubOpen.cid, studentId: sid || ubOpen.sid, date: ubOpen.date, val, ts: Date.now() }); persist(); refreshUb(); render(); };
-A.ubDel = id => { db.contribs = db.contribs.filter(x => x.id !== id); persist(); refreshUb(); render(); };
+// Entfernt Einträge aus einer Sammlung (contribs, remarks, attendance, grades) und bietet „Rückgängig“ an.
+function removeUndo(coll, pred, msg) {
+  const gone = db[coll].filter(pred); if (!gone.length) return;
+  db[coll] = db[coll].filter(x => !pred(x)); persist();
+  undoable(msg, () => { const have = new Set(db[coll].map(x => x.id)); db[coll].push(...gone.filter(x => !have.has(x.id))); });
+}
+A.ubDel = id => { removeUndo('contribs', x => x.id === id, 'Eintrag gelöscht.'); refreshUb(); render(); };
 // Eine Zeile für einen einzelnen Beitrag: Zeichen, Bemerkungsfeld, Löschen.
 function contribRow(x, delCall) {
-  return `<div class="gi-row" style="gap:6px;padding:3px 0"><span class="mbtn ${UB_CLASS[x.val]}" style="display:inline-flex;align-items:center;justify-content:center;height:40px;min-width:46px;font-size:${x.val.length > 2 ? 12 : 16}px">${UB_LABEL[x.val]}</span><input style="margin:0;flex:1;min-width:0;height:40px" value="${h(x.note || '')}" placeholder="Bemerkung (optional)" onchange="A.ubNote('${x.id}',this.value)" aria-label="Bemerkung zum Eintrag"><button type="button" class="mbtn undo" style="height:40px" onclick="${delCall}" aria-label="Eintrag löschen">✕</button></div>`;
+  return `<div class="gi-row" style="gap:6px;padding:3px 0"><span class="mbtn ${UB_CLASS[x.val]}" style="display:inline-flex;align-items:center;justify-content:center;height:44px;min-width:46px;font-size:${x.val.length > 2 ? 12 : 16}px">${UB_LABEL[x.val]}</span><input style="margin:0;flex:1;min-width:0;height:44px" value="${h(x.note || '')}" placeholder="Bemerkung (optional)" onchange="A.ubNote('${x.id}',this.value)" aria-label="Bemerkung zum Eintrag"><button type="button" class="mbtn undo" style="height:44px" onclick="${delCall}" aria-label="Eintrag löschen">✕</button></div>`;
 }
 A.ubNote = (id, v) => { const x = db.contribs.find(c => c.id === id); if (!x) return; v = v.trim(); if (v) x.note = v; else delete x.note; persist(); render(); };
 const contribNotes = list => list.filter(x => x.note).map(x => UB_LABEL[x.val] + ': ' + x.note);
@@ -834,8 +918,8 @@ const contribNotes = list => list.filter(x => x.note).map(x => UB_LABEL[x.val] +
 function dayBody() {
   const { cid, sid, d } = dayOpen, c = getClass(cid), sport = c.type === 'sport', r = attOf(sid, d) || {};
   const cur = !r.status ? '' : (!sport && r.status === 'fehlt' && r.reason === 'krank') ? 'krank' : r.status;
-  const opts = sport ? [['aktiv', 'aktiv'], ['passiv', 'passiv'], ['fehlt', 'fehlt'], ['befreit', 'befreit']] : [['', 'da'], ['krank', 'krank'], ['fehlt', 'fehlt'], ['verspaetet', 'verspätet']];
-  const seg = (list, on, field) => `<div class="seg full-seg">${list.map(([k, l]) => `<button type="button" class="${on === k ? 'on' : ''}" onclick="A.daySet('${field}','${k}')">${l}</button>`).join('')}</div>`;
+  const opts = sport ? [['aktiv', 'aktiv'], ['passiv', 'passiv'], ['fehlt', 'fehlt'], ['befreit', 'befreit']] : [['', 'da'], ['krank', 'krank'], ['fehlt', 'fehlt'], ['verspaetet', 'zu spät']];
+  const seg = (list, on, field) => `<div class="seg full-seg">${list.map(([k, l]) => `<button type="button" class="${on === k ? 'on' + (field === 'status' ? ' ' + (k || 'da') : '') : ''}" aria-pressed="${on === k}" onclick="A.daySet('${field}','${k}')">${l}</button>`).join('')}</div>`;
   const cs = db.contribs.filter(x => x.studentId === sid && x.date === d).sort((a, b) => (a.ts || 0) - (b.ts || 0));
   const vh = sport ? [] : db.remarks.filter(x => x.studentId === sid && x.date === d && x.tag === 'Verhalten');
   return `<div class="sec" style="margin-left:0">Anwesenheit</div>${seg(opts, cur, 'status')}
@@ -844,7 +928,7 @@ function dayBody() {
     ${sport && !cs.length ? '' : `<div class="sec" style="margin-left:0">${sport ? 'Einträge' : 'Mitarbeit und Hausaufgabe'}</div>
     ${cs.map(x => contribRow(x, `A.dayDel('contribs','${x.id}')`)).join('') || '<p class="hint">Keine Einträge an diesem Tag.</p>'}
     ${sport ? '' : `<div class="sub" style="margin-top:8px">Hinzufügen:</div><div class="ubrow">${ubButtons(['++', '+', '-', '--', 'HA'], v => `A.dayAdd('${v}')`)}</div>`}`}
-    ${vh.length ? `<div class="sec" style="margin-left:0">Verhalten</div>` + vh.map(x => `<div class="gi-row" style="gap:6px;padding:3px 0"><div class="grow tap remark" onclick="A.editRemark('${x.id}')">${h(x.text)} <span class="sub">✎</span></div><button type="button" class="mbtn undo" style="height:40px" onclick="A.dayDel('remarks','${x.id}')" aria-label="Verhaltens-Eintrag löschen">✕</button></div>`).join('') : ''}
+    ${vh.length ? `<div class="sec" style="margin-left:0">Verhalten</div>` + vh.map(x => `<div class="gi-row" style="gap:6px;padding:3px 0"><div class="grow tap remark" onclick="A.editRemark('${x.id}')">${h(x.text)} <span class="sub">✎</span></div><button type="button" class="mbtn undo" style="height:44px" onclick="A.dayDel('remarks','${x.id}')" aria-label="Verhaltens-Eintrag löschen">✕</button></div>`).join('') : ''}
     <button type="button" class="btn danger block mt" onclick="A.dayClear()">Alle Einträge dieses Tages löschen</button>
     <p class="hint">Änderungen werden sofort gespeichert.${sport ? ' Den markierten Status noch einmal antippen entfernt ihn.' : ''}</p>`;
 }
@@ -869,14 +953,13 @@ A.daySet = (field, v) => {
   attCleanup(); persist(); if (field !== 'note') refreshDay(); render();
 };
 A.dayAdd = val => { const { cid, sid, d } = dayOpen; db.contribs.push({ id: uid(), classId: cid, studentId: sid, date: d, val, ts: Date.now() }); persist(); refreshDay(); render(); };
-A.dayDel = (coll, id) => { db[coll] = db[coll].filter(x => x.id !== id); persist(); refreshDay(); render(); };
+A.dayDel = (coll, id) => { removeUndo(coll, x => x.id === id, 'Eintrag gelöscht.'); refreshDay(); render(); };
 A.dayClear = () => {
-  const { cid, sid, d } = dayOpen;
-  if (!confirm(`Wirklich alle Einträge vom ${fmtDate(d)} für diesen Schüler löschen?`)) return;
-  db.attendance = db.attendance.filter(x => !(x.studentId === sid && x.date === d));
-  db.contribs = db.contribs.filter(x => !(x.studentId === sid && x.date === d));
-  if (getClass(cid).type !== 'sport') db.remarks = db.remarks.filter(x => !(x.studentId === sid && x.date === d && x.tag === 'Verhalten'));
-  persist(); A.closeModal(); render(); toast('Einträge des Tages gelöscht.');
+  const { cid, sid, d } = dayOpen, mine = x => x.studentId === sid && x.date === d;
+  const old = { attendance: db.attendance.filter(mine), contribs: db.contribs.filter(mine), remarks: getClass(cid).type !== 'sport' ? db.remarks.filter(x => mine(x) && x.tag === 'Verhalten') : [] };
+  for (const k in old) db[k] = db[k].filter(x => !old[k].includes(x));
+  persist(); A.closeModal(); render();
+  undoable(`Einträge vom ${fmtDate(d)} gelöscht.`, () => { for (const k in old) { const have = new Set(db[k].map(x => x.id)); db[k].push(...old[k].filter(x => !have.has(x.id))); } });
 };
 
 /* ---------- Noten ---------- */
@@ -895,7 +978,7 @@ function tabGrades(c) {
   return `<div class="btns"><button class="btn pri" onclick="A.editGroup('${c.id}')">+ Leistungsnachweis (ganze Klasse)</button></div>
     <div class="sec">Leistungsnachweise</div>
     ${groups.length ? `<div class="list">${list}</div>` : '<div class="card empty">Noch keine Noten. Lege einen Leistungsnachweis für die Klasse an oder trage Einzelnoten beim jeweiligen Schüler ein.</div>'}
-    ${sts.length ? `<div class="sec">Notenübersicht</div><div class="card" style="padding:4px 10px"><table class="ov"><tr><th>Name</th><th>Schnitt groß</th><th>Schnitt klein</th><th>Gesamt</th></tr>${ov}</table>
+    ${sts.length ? `<div class="sec">Notenübersicht</div><div class="card xscroll" style="padding:4px 10px"><table class="ov"><tr><th>Name</th><th>Schnitt groß</th><th>Schnitt klein</th><th>Gesamt</th></tr>${ov}</table>
     <p class="hint">Gewichtung groß : klein = ${c.wBig} : ${c.wSmall}. Tendenzen: 2+ = 1,75 · 2− = 2,25.</p></div>
     <button class="btn block" onclick="A.exportCsv('${c.id}')">⬇︎ Notenliste als CSV (Excel)</button>` : ''}`;
 }
@@ -939,7 +1022,7 @@ A.editGroup = (cid, gid) => {
       for (const [sid, p] of vals) db.grades.push({ id: prev.get(sid) || uid(), studentId: sid, ...meta, value: p.value, label: p.label });
       persist(); toast('Gespeichert.');
     },
-    onDelete: gid ? () => { if (!confirm('Diesen Leistungsnachweis mit allen Noten löschen?')) return false; db.grades = db.grades.filter(g => g.groupId !== gid); persist(); } : null
+    onDelete: gid ? async () => { if (!await askConfirm('Diesen Leistungsnachweis mit allen Noten löschen?', { ok: 'Löschen', danger: true })) return false; removeUndo('grades', g => g.groupId === gid, 'Leistungsnachweis gelöscht.'); } : null
   });
   document.getElementById('mForm').dataset.cid = cid;
   A.liveAvg();
@@ -976,13 +1059,13 @@ A.editGrade = (gradeId, cid, sid) => {
       if (!gradeId) { g.id = uid(); db.grades.push(g); }
       persist();
     },
-    onDelete: gradeId ? () => { if (!confirm('Note löschen?')) return false; db.grades = db.grades.filter(x => x.id !== gradeId); persist(); } : null
+    onDelete: gradeId ? () => { removeUndo('grades', x => x.id === gradeId, 'Note gelöscht.'); } : null
   });
   if (!g.groupId) document.getElementById('mForm').dataset.cid = '';
 };
 A.exportCsv = cid => {
   const c = getClass(cid);
-  if (!confirm('Die CSV-Datei ist NICHT verschlüsselt. Bitte nur auf einem sicheren Gerät speichern und danach löschen. Fortfahren?')) return;
+  toast('CSV gespeichert. Achtung: Die Datei ist nicht verschlüsselt.');
   const groups = groupsOf(c).filter(g => g.isGroup).reverse();
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const num = v => v == null ? '' : v.toFixed(2).replace('.', ',');
@@ -1035,7 +1118,7 @@ A.openChecklist = (cid, lid) => {
     <div class="namegrid">${sortStudents(c.students).map(s => `<button type="button" class="${l.done.includes(s.id) ? 'ok' : ''} ${isAway(s) ? 'away' : ''}" onclick="A.clToggle('${cid}','${lid}','${s.id}',this)"><b>${h(s.last)}</b>, ${h(s.first)}${isAway(s) ? `<br><span class="sub">${h(s.away.label || 'abwesend')}</span>` : ''}</button>`).join('')}</div>
     <div class="btns mt"><button type="button" class="btn sm" onclick="A.clAll('${cid}','${lid}',true)">Alle abhaken</button><button type="button" class="btn sm" onclick="A.clAll('${cid}','${lid}',false)">Alle zurücksetzen</button></div>`, {
     cancelLabel: 'Fertig',
-    onDelete: () => { if (!confirm('Diese Abhak-Liste löschen?')) return false; c.checklists = c.checklists.filter(x => x.id !== lid); persist(); }
+    onDelete: () => { c.checklists = c.checklists.filter(x => x.id !== lid); persist(); undoable('Abhak-Liste gelöscht.', () => { const cc = getClass(cid); if (cc && !cc.checklists.some(x => x.id === lid)) cc.checklists.unshift(l); }); }
   });
   clInfo(c, l);
 };
@@ -1052,10 +1135,14 @@ A.editTodo = (cid, tid) => {
   const c = getClass(cid), t = c.todos.find(x => x.id === tid);
   openModal('To-do bearbeiten', `<label>Text<textarea name="text" rows="3">${h(t.text)}</textarea></label><label>Fällig am<input type="date" name="due" value="${t.due || ''}"></label>`, {
     onSave: f => { if (!f.text.value.trim()) return false; t.text = f.text.value.trim(); t.due = f.due.value || null; persist(); },
-    onDelete: () => { c.todos = c.todos.filter(x => x.id !== tid); persist(); }
+    onDelete: () => { c.todos = c.todos.filter(x => x.id !== tid); persist(); undoable('To-do gelöscht.', () => { const cc = getClass(cid); if (cc && !cc.todos.some(x => x.id === tid)) cc.todos.push(t); }); }
   });
 };
-A.clearDone = cid => { const c = getClass(cid); if (!confirm('Alle erledigten To-dos löschen?')) return; c.todos = c.todos.filter(t => !t.done); persist(); render(); };
+A.clearDone = cid => {
+  const c = getClass(cid), gone = c.todos.filter(t => t.done); if (!gone.length) return;
+  c.todos = c.todos.filter(t => !t.done); persist(); render();
+  undoable(`${gone.length} erledigte To-dos gelöscht.`, () => { const cc = getClass(cid); if (!cc) return; const have = new Set(cc.todos.map(t => t.id)); cc.todos.push(...gone.filter(t => !have.has(t.id))); });
+};
 
 /* ---------- Mehr ---------- */
 function tabMore(c) {
@@ -1067,10 +1154,10 @@ function tabMore(c) {
     <button class="btn danger block mt" onclick="A.deleteClass('${c.id}')">Klasse endgültig löschen</button></div>`;
 }
 A.archiveClass = cid => { const c = getClass(cid); c.archived = !c.archived; persist(); toast(c.archived ? 'Archiviert.' : 'Wieder aktiv.'); location.hash = '#/'; };
-A.deleteClass = cid => {
+A.deleteClass = async cid => {
   const c = getClass(cid);
-  const ans = prompt(`Klasse ${c.name} mit ALLEN Schülern, Noten, Beiträgen, Bemerkungen und To-dos löschen? Zum Bestätigen den Klassennamen eintippen:`);
-  if (ans == null) return; if (ans.trim() !== c.name) return toast('Name stimmt nicht – nichts gelöscht.');
+  const ans = await askText(`Klasse ${c.name} mit ALLEN Schülern, Noten, Beiträgen, Bemerkungen und To-dos löschen? Zum Bestätigen den Klassennamen eintippen:`, { ok: 'Endgültig löschen', danger: true, placeholder: 'Klassenname' });
+  if (ans == null || !db) return; if (ans.trim() !== c.name) return toast('Name stimmt nicht – nichts gelöscht.');
   db.classes = db.classes.filter(x => x.id !== cid);
   for (const k of ['grades', 'contribs', 'remarks', 'attendance']) db[k] = db[k].filter(x => x.classId !== cid);
   persist(); location.hash = '#/';
@@ -1082,10 +1169,10 @@ function studentLog(s, withVh) {
   const map = {};
   const add = (d, tag, note) => { const e = (map[d] ||= { tags: [], notes: [] }); if (tag) e.tags.push(tag); if (note) e.notes.push(note); };
   for (const a of db.attendance.filter(a => a.studentId === s.id)) {
-    if (a.status === 'fehlt') add(a.date, `<span class="mi">${a.reason === 'krank' ? 'krank (gefehlt)' : 'fehlt'}</span>`);
-    else if (a.status === 'verspaetet') add(a.date, '<span class="hw">verspätet</span>');
-    else if (a.status === 'befreit') add(a.date, '<span class="tag">🩹 befreit</span>');
-    else if (a.status === 'passiv') add(a.date, '<span class="hw">passiv</span>');
+    if (a.status === 'fehlt') add(a.date, a.reason === 'krank' ? '<span class="sk">krank</span>' : '<span class="mi">fehlt</span>');
+    else if (a.status === 'verspaetet') add(a.date, '<span class="lt">zu spät</span>');
+    else if (a.status === 'befreit') add(a.date, '<span class="ex">🩹 befreit</span>');
+    else if (a.status === 'passiv') add(a.date, '<span class="pv">passiv</span>');
     if (a.kit === 'vergessen') add(a.date, '<span class="mi">👕 Sportzeug vergessen</span>');
     if (a.note) add(a.date, '', a.note);
   }
@@ -1104,8 +1191,8 @@ function studentLog(s, withVh) {
 function studentLogHtml(c, s, st) {
   const sport = c.type === 'sport', log = studentLog(s, !sport);
   const sum = (sport
-    ? [['gefehlt', st.fehlt, 'mi'], ['passiv', st.passiv, 'hw'], ['Sportzeug vergessen', st.vergessen, 'mi'], ['befreit', st.befreit, 'sub']]
-    : [['gefehlt', st.fehlt, 'mi'], ['verspätet', st.verspaetet, 'hw'], ['++', st.plus2, 'pl'], ['+', st.plus, 'pl'], ['−', st.minus, 'mi'], ['−−', st.minus2, 'mi'], ['HA fehlt', st.ha, 'hw'], ['Verhalten', st.vh, 'mat-c']].concat(st.mat ? [['Material', st.mat, 'mat-c']] : []))
+    ? [['gefehlt', st.fehlt, 'mi'], ['passiv', st.passiv, 'pv'], ['Sportzeug vergessen', st.vergessen, 'mi'], ['befreit', st.befreit, 'ex']]
+    : [['gefehlt', st.fehlt, 'mi'], ['zu spät', st.verspaetet, 'lt'], ['++', st.plus2, 'pl'], ['+', st.plus, 'pl'], ['−', st.minus, 'mi'], ['−−', st.minus2, 'mi'], ['HA fehlt', st.ha, 'hw'], ['Verhalten', st.vh, 'mat-c']].concat(st.mat ? [['Material', st.mat, 'mat-c']] : []))
     .map(([l, n, cls]) => `<div><div class="v ${n ? cls : ''}">${n}</div><div class="l">${l}</div></div>`).join('');
   const wd = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short' });
   const month = d => new Date(d + 'T12:00:00').toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
@@ -1136,7 +1223,7 @@ function renderStudent(c, sid, view) {
   const att = db.attendance.filter(a => a.studentId === sid).sort((a, b) => b.date.localeCompare(a.date));
   const sw = `<div class="seg full-seg"><button class="${noten || verlauf ? '' : 'on'}" onclick="location.replace('#/s/${c.id}/${sid}')">Übersicht</button><button class="${verlauf ? 'on' : ''}" onclick="location.replace('#/s/${c.id}/${sid}/verlauf')">📅 Verlauf</button><button class="${noten ? 'on' : ''}" onclick="location.replace('#/s/${c.id}/${sid}/noten')">📝 Noten</button></div>`;
   const nav = `<div class="navstud mt">${prev ? `<button class="btn" onclick="location.replace('#/s/${c.id}/${prev.id}${sfx}')">‹ ${h(prev.first)}</button>` : '<span style="flex:1"></span>'}${next ? `<button class="btn" onclick="location.replace('#/s/${c.id}/${next.id}${sfx}')">${h(next.first)} ›</button>` : '<span style="flex:1"></span>'}</div>`;
-  const head = header(`${s.first} ${s.last}`, `#/c/${c.id}/${noten ? 'noten' : 'schueler'}`, [['✎', `A.editStudent('${c.id}','${sid}')`, 'Schüler bearbeiten']]);
+  const head = header(`${s.first} ${s.last}`, `#/c/${c.id}/${ui.tab && ui.tab.cid === c.id ? ui.tab.tab : 'schueler'}`, [['✎', `A.editStudent('${c.id}','${sid}')`, 'Schüler bearbeiten']]);
   if (verlauf) { app.innerHTML = head + `<main>${sw}${studentLogHtml(c, s, st)}${nav}</main>`; return; }
   if (noten) {
     app.innerHTML = head + `<main>${sw}
@@ -1149,7 +1236,7 @@ function renderStudent(c, sid, view) {
   app.innerHTML = head + `<main>${sw}
     ${isAway(s) || (c.type === 'sport' && isExempt(s)) ? `<div class="card row"><div class="grow">${awayBadge(s)}${c.type === 'sport' ? exemptBadge(s) : ''}${c.type === 'sport' && isExempt(s) && s.exempt.note ? ` <span class="sub">${h(s.exempt.note)}</span>` : ''}</div><button class="btn sm" onclick="A.editStudent('${c.id}','${sid}')">Ändern</button></div>` : ''}
     ${c.type === 'sport'
-      ? `<div class="card"><div class="sub">Sportstunden</div><div><span class="pl">aktiv ${st.aktiv}</span> &nbsp;<span class="hw">passiv ${st.passiv}</span> &nbsp;<span class="mi">fehlt ${st.fehlt}</span> &nbsp;<span class="mi">👕 vergessen ${st.vergessen}</span>${st.befreit ? ` &nbsp;<span class="sub">befreit ${st.befreit}</span>` : ''}</div></div>`
+      ? `<div class="card"><div class="sub">Sportstunden</div><div><span class="pl">aktiv ${st.aktiv}</span> &nbsp;<span class="pv">passiv ${st.passiv}</span> &nbsp;<span class="mi">fehlt ${st.fehlt}</span> &nbsp;<span class="mi">👕 vergessen ${st.vergessen}</span>${st.befreit ? ` &nbsp;<span class="sub">befreit ${st.befreit}</span>` : ''}</div></div>`
       : `<div class="card"><div class="sub">Beiträge gesamt</div><div>${contribChips(cs) || '–'}${st.vh ? ` &nbsp;<span class="mat-c">VH ${st.vh}</span>` : ''}</div><div class="sub">heute: ${contribChips(td) || '–'}${vhCount(sid, today()) ? ` &nbsp;<span class="mat-c">VH ${vhCount(sid, today())}</span>` : ''}</div>
     <div class="ubrow mt">${ubButtons(UB_VALS, v => `A.contribToday('${c.id}','${sid}','${v}')`)}<button type="button" class="mbtn vh" onclick="A.vh('${c.id}','${sid}','${today()}')" aria-label="Verhalten dokumentieren">VH</button><button class="mbtn undo" onclick="A.ub('${c.id}','${sid}')" aria-label="Beiträge ändern">✎</button></div></div>
     <div class="card"><div class="sub">Anwesenheit heute${absBadges(s, today(), lastLesson(c, today()))}</div><div class="sub">insgesamt: ${attSummary(st) || '–'}</div>
@@ -1161,7 +1248,7 @@ function renderStudent(c, sid, view) {
     ${remarks.length ? `<div class="list">${remarks.map(r => `<div class="item tap" onclick="A.editRemark('${r.id}')"><div class="grow"><div class="sub">${fmtDate(r.date)} · ${h(r.tag)}</div><div class="remark">${h(r.text)}</div></div></div>`).join('')}</div>` : ''}
 
     ${c.type === 'sport' ? `<div class="sec">Sportstunden-Verlauf</div>
-    ${att.length ? `<div class="list">${att.slice(0, 40).map(a => `<div class="item tap" style="min-height:44px" onclick="A.dayEdit('${c.id}','${sid}','${a.date}')" role="button"><div class="grow">${fmtDate(a.date)}${a.note ? `<div class="sub">${h(a.note)}</div>` : ''}</div><div>${a.status ? `<span class="${a.status === 'aktiv' ? 'pl' : a.status === 'passiv' ? 'hw' : 'mi'}">${a.status}</span>` : ''}${a.kit === 'vergessen' ? ' &nbsp;<span class="mi">👕 vergessen</span>' : ''}</div></div>`).join('')}</div>` : '<div class="card empty">Noch keine Einträge.</div>'}` : `<div class="sec">Mitarbeit-Verlauf</div>
+    ${att.length ? `<div class="list">${att.slice(0, 40).map(a => `<div class="item tap" style="min-height:44px" onclick="A.dayEdit('${c.id}','${sid}','${a.date}')" role="button"><div class="grow">${fmtDate(a.date)}${a.note ? `<div class="sub">${h(a.note)}</div>` : ''}</div><div>${a.status ? `<span class="${a.status === 'aktiv' ? 'pl' : a.status === 'passiv' ? 'pv' : a.status === 'befreit' ? 'ex' : 'mi'}">${a.status}</span>` : ''}${a.kit === 'vergessen' ? ' &nbsp;<span class="mi">👕 vergessen</span>' : ''}</div></div>`).join('')}</div>` : '<div class="card empty">Noch keine Einträge.</div>'}` : `<div class="sec">Mitarbeit-Verlauf</div>
     ${dates.length ? `<div class="list">${dates.slice(0, 30).map(d => `<div class="item tap" style="min-height:44px" onclick="A.dayEdit('${c.id}','${sid}','${d}')" role="button"><div class="grow">${fmtDate(d)}${contribNotes(byDate[d]).length ? `<div class="sub">${contribNotes(byDate[d]).map(h).join(' · ')}</div>` : ''}</div><div>${contribChips(byDate[d])}</div></div>`).join('')}</div><p class="hint">Tippe auf einen Tag, um Einträge zu ändern, zu löschen oder eine Bemerkung zu ergänzen.</p>` : '<div class="card empty">Noch keine Einträge.</div>'}`}
 
     ${nav}
@@ -1176,7 +1263,7 @@ A.editRemark = rid => {
   const r = db.remarks.find(x => x.id === rid);
   openModal('Bemerkung bearbeiten', `<div class="grid2"><label>Kategorie<select name="tag">${TAGS.map(t => `<option ${t === r.tag ? 'selected' : ''}>${t}</option>`).join('')}</select></label><label>Datum<input type="date" name="date" value="${r.date}"></label></div><label>Text<textarea name="text" rows="6">${h(r.text)}</textarea></label>`, {
     onSave: f => { if (!f.text.value.trim()) return false; r.text = f.text.value.trim(); r.tag = f.tag.value; r.date = f.date.value || r.date; persist(); },
-    onDelete: () => { if (!confirm('Bemerkung löschen?')) return false; db.remarks = db.remarks.filter(x => x.id !== rid); persist(); }
+    onDelete: () => { removeUndo('remarks', x => x.id === rid, 'Bemerkung gelöscht.'); }
   });
 };
 
@@ -1191,6 +1278,9 @@ function renderSettings() {
     <button class="btn pri block mt" onclick="A.exportBackup()">⬇︎ Sicherung jetzt exportieren</button>
     <button class="btn block mt" onclick="A.importBackup(false)">⬆︎ Sicherung importieren (ersetzt alle Daten)</button></div>
     ${syncCard()}
+    <div class="card"><h2>Darstellung</h2>
+    <div class="seg full-seg" style="margin-bottom:6px">${[['auto', 'Automatisch'], ['light', 'Hell'], ['dark', 'Dunkel']].map(([k, l]) => `<button type="button" class="${themePref() === k ? 'on' : ''}" aria-pressed="${themePref() === k}" onclick="A.setTheme('${k}')">${l}</button>`).join('')}</div>
+    <p class="hint" style="margin:0">„Automatisch“ richtet sich nach der Einstellung deines Geräts. Die Auswahl gilt nur für dieses Gerät.</p></div>
     <div class="card"><h2>Sicherheit</h2>
     <label>Automatisch sperren nach<select onchange="A.setAutoLock(this.value)">${[[2, '2 Minuten'], [5, '5 Minuten'], [10, '10 Minuten'], [30, '30 Minuten'], [0, 'nie']].map(([v, l]) => `<option value="${v}" ${+s.autoLockMin === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <button class="btn block" onclick="A.changePassword()">Passwort ändern</button></div>
@@ -1198,6 +1288,8 @@ function renderSettings() {
     <div class="card"><h2>Gefahrenzone</h2><button class="btn danger block" onclick="A.wipe()">Alle Daten auf diesem Gerät löschen</button></div>
     <p class="sub" style="text-align:center">Klassenbuch Sync · Version 2.0</p></main>`;
 }
+const themePref = () => { let t = null; try { t = localStorage.getItem('klassenbuch_theme'); } catch (e) {} return t === 'light' || t === 'dark' ? t : 'auto'; };
+A.setTheme = v => { try { if (v === 'auto') localStorage.removeItem('klassenbuch_theme'); else localStorage.setItem('klassenbuch_theme', v); } catch (e) {} applyTheme(); render(); };
 A.setAutoLock = v => { db.settings.autoLockMin = +v; persist(); toast('Gespeichert.'); };
 A.setAutoBackup = v => { db.settings.autoBackup = v; persist(); toast('Gespeichert.'); };
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1243,10 +1335,10 @@ A.importBackup = async locked => {
   let blob; try { blob = JSON.parse(await file.text()); } catch (e) { return toast('Keine gültige Sicherungsdatei.'); }
   if (!blob || blob.app !== 'klassenbuch') return toast('Keine Klassenbuch-Sicherung.');
   const pw = await askPassword('Passwort der Sicherung');
-  let r; try { r = await Vault.decryptBlob(blob, pw); } catch (e) { return alert('Falsches Passwort für diese Sicherung.'); }
+  let r; try { r = await Vault.decryptBlob(blob, pw); } catch (e) { return tell('Falsches Passwort für diese Sicherung.'); }
   const d = normalize(r.data);
   const n = d.classes.length, m = d.classes.reduce((a, c) => a + c.students.length, 0);
-  if ((Vault.exists() || db) && !confirm(`Sicherung vom ${blob.saved ? fmtDate(blob.saved.slice(0, 10)) : '?'} mit ${n} Klassen und ${m} Schülern laden? Die aktuellen Daten auf diesem Gerät werden dabei ERSETZT.`)) return;
+  if ((Vault.exists() || db) && !await askConfirm(`Sicherung vom ${blob.saved ? fmtDate(blob.saved.slice(0, 10)) : '?'} mit ${n} Klassen und ${m} Schülern laden? Die aktuellen Daten auf diesem Gerät werden dabei ERSETZT.`, { ok: 'Ersetzen', danger: true })) return;
   // Eine bestehende Cloud-Verbindung bleibt erhalten; die importierten Daten werden danach hochgeladen.
   const keepSync = db && db.settings.sync;
   if (keepSync) d.settings.sync = keepSync; else delete d.settings.sync;
@@ -1442,7 +1534,7 @@ async function autoSync(manual, force) {
   } catch (e) {
     syncErr = e instanceof SyncError ? e.message : 'Abgleich fehlgeschlagen: ' + e.message;
     if (!(e instanceof SyncError)) console.error(e);
-    if (manual) alert(syncErr);
+    if (manual) tell(syncErr);
   } finally { syncBusy = false; if (syncAgain) { syncAgain = false; syncSchedule(1500); } }
 }
 A.syncNow = () => autoSync(true);
@@ -1454,7 +1546,7 @@ addEventListener('online', () => syncSchedule(1000));
 let syncBusy = false;
 async function syncRun(label, fn) {
   if (syncBusy) return; syncBusy = true; toast(label);
-  try { await fn(); } catch (e) { if (!(e instanceof SyncError)) console.error(e); alert(e instanceof SyncError ? e.message : 'Abgleich fehlgeschlagen: ' + e.message); }
+  try { await fn(); } catch (e) { if (!(e instanceof SyncError)) console.error(e); tell(e instanceof SyncError ? e.message : 'Abgleich fehlgeschlagen: ' + e.message); }
   finally { syncBusy = false; }
 }
 A.syncConnect = e => {
@@ -1466,8 +1558,8 @@ A.syncConnect = e => {
     db.settings.sync = cfg; persist(); render(); toast('Verbunden. Gleiche ab …');
   }).then(() => autoSync(true));
 };
-A.syncDisconnect = () => {
-  if (!confirm('Verbindung zur Cloud trennen? Die Daten auf diesem Gerät und in der Cloud bleiben erhalten.')) return;
+A.syncDisconnect = async () => {
+  if (!await askConfirm('Verbindung zur Cloud trennen? Die Daten auf diesem Gerät und in der Cloud bleiben erhalten.', { ok: 'Trennen' }) || !db) return;
   clearTimeout(syncTimer); syncErr = ''; delete db.settings.sync; localStorage.removeItem(SYNC_STATE); persist(); render(); toast('Verbindung getrennt.');
 };
 // Entschlüsselt einen Cloud-Stand: mit dem Schlüssel dieses Geräts, sonst mit einem abgefragten Passwort.
@@ -1488,7 +1580,7 @@ A.syncDownload = () => syncRun('Lade aus der Cloud …', async () => {
   if (!remote) throw new SyncError('In der Cloud liegt noch nichts. Lade zuerst von einem Gerät hoch.');
   const r = await openCloudBlob(remote.blob);
   const n = r.data.classes ? r.data.classes.length : 0;
-  if (!confirm(`Stand vom ${fmtStamp(remote.blob.saved)} mit ${n} Klassen aus der Cloud laden? Die Daten auf diesem Gerät werden dabei ERSETZT.`)) return;
+  if (!await askConfirm(`Stand vom ${fmtStamp(remote.blob.saved)} mit ${n} Klassen aus der Cloud laden? Die Daten auf diesem Gerät werden dabei ERSETZT.`, { ok: 'Ersetzen', danger: true }) || !db) return;
   await applyCloud(cfg, remote, r);
   render(); toast('Aus der Cloud geladen.');
 });
@@ -1507,10 +1599,10 @@ A.cloudFirstLoad = () => {
         const remote = await cloudGet(cfg);
         if (!remote) throw new SyncError('In der Cloud liegt noch nichts. Lade zuerst von einem Gerät hoch.');
         let r; try { r = await Vault.decryptBlob(remote.blob, f.pw.value); } catch (e) { throw new SyncError('Falsches Klassenbuch-Passwort.'); }
-        if (Vault.exists() && !confirm('Auf diesem Gerät gibt es schon ein Klassenbuch. Durch den Stand aus der Cloud ERSETZEN?')) return false;
+        if (Vault.exists() && !await askConfirm('Auf diesem Gerät gibt es schon ein Klassenbuch. Durch den Stand aus der Cloud ERSETZEN?', { ok: 'Ersetzen', danger: true })) return false;
         await applyCloud(cfg, remote, r);
         location.hash = '#/'; toast('Aus der Cloud geladen.');
-      } catch (e) { if (!(e instanceof SyncError)) console.error(e); alert(e instanceof SyncError ? e.message : 'Laden fehlgeschlagen: ' + e.message); return false; }
+      } catch (e) { if (!(e instanceof SyncError)) console.error(e); tell(e instanceof SyncError ? e.message : 'Laden fehlgeschlagen: ' + e.message); return false; }
       finally { syncBusy = false; }
     }
   });
@@ -1525,9 +1617,9 @@ A.changePassword = () => {
     }
   });
 };
-A.wipe = () => {
-  const ans = prompt('Wirklich ALLE Daten auf diesem Gerät löschen? Das kann nicht rückgängig gemacht werden. Zum Bestätigen LÖSCHEN eintippen:');
-  if (ans !== 'LÖSCHEN') return;
+A.wipe = async () => {
+  const ans = await askText('Wirklich ALLE Daten auf diesem Gerät löschen? Das kann nicht rückgängig gemacht werden. Zum Bestätigen LÖSCHEN eintippen:', { ok: 'Alles löschen', danger: true, placeholder: 'LÖSCHEN' });
+  if (ans == null) return; if (ans.trim() !== 'LÖSCHEN') return toast('Nichts gelöscht.');
   localStorage.removeItem(VAULT); localStorage.removeItem(SYNC_STATE); db = null; Vault.key = null; location.hash = '#/'; renderLock();
 };
 
